@@ -275,8 +275,8 @@ Foam::GuccioneElastic::GuccioneElastic
     ct_(readScalar(dict.lookup("ct"))),
     cfs_(readScalar(dict.lookup("cfs"))),
     // Check: is this mu equivalent to the linearised shear modulus?
-    //mu_((0.75*(cf_ - 2.0*cfs_ + 2.0*cfs_)*k_)),
-    mu_(0.25*cf_*k_),
+    mu_((0.75*(cf_ - 2.0*cfs_ + 2.0*cfs_)*k_)),
+    //mu_(0.25*cf_*k_),
     uniformFibreField_
     (
         dict.lookupOrDefault<Switch>("uniformFibreField", false)
@@ -524,7 +524,7 @@ Foam::tmp<Foam::volScalarField> Foam::GuccioneElastic::impK() const
                 IOobject::NO_WRITE
             ),
             mesh(),
-            (cf_ - 2.0*cfs_ + 2.0*cfs_)*0.001*k_ //+ bulkModulus_ // 2*mu + lambda == (4/3)*mu + kappa
+            (cf_ - 2.0*cfs_ + 2.0*cfs_)*k_ // + bulkModulus_ // 2*mu + lambda == (4/3)*mu + kappa
         )
     );
 }
@@ -878,6 +878,7 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
     // the deviatoric component
     const volSymmTensorField s(dev((1/J)*symm(F & S_ & F.T())));
 
+    //const volSymmTensorField s(dev(J*symm(F & S_ & F.T())));
     // Calculate the hydrostatic stress
     updateSigmaHyd
     (
