@@ -638,6 +638,8 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     const PetscScalar *x
 )
 {
+  Info<< "form Residual called: "
+        << __FILE__ << " Line: " << __LINE__ << nl << endl;
     // Copy x into the D field
     volVectorField& D = const_cast<volVectorField&>(this->D());
     vectorField& DI = D;
@@ -744,6 +746,18 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
     const PetscScalar *x
 )
 {
+  Info<< "Form Jacobian called. File: "
+        << __FILE__ << " Line: " << __LINE__ << nl << endl;
+
+  // For JFNK only need to form Jacobian once for preconditioner, so we skip the process after first time
+  if(preconditionerBuilt_)
+    {
+      Info<< "Skipping pre conditioner build as was done."<< nl <<endl;
+      return 0;
+    }
+
+  Info<< "Building Jacobian for preconditioner(first time)" <<nl <<endl;
+
     // Copy x into the D field
     volVectorField& D = const_cast<volVectorField&>(this->D());
     vectorField& DI = D;
@@ -778,6 +792,8 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
     (
         approxJ, jac, 0, 0, solidModel::twoD() ? 2 : 3
     );
+    //mark preconditioner as true so process doesnt call again.
+    preconditionerBuilt_ = true;
 
     return 0;
 }

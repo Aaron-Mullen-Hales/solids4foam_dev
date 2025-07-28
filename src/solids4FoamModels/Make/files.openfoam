@@ -111,6 +111,7 @@ $(solidFvPatchFields)/solidWedge/solidWedgeFvPatchVectorField.C
 $(solidFvPatchFields)/solidWedge/solidWedgeFvPatchScalarField.C
 $(solidFvPatchFields)/solidDirectionMixed/solidDirectionMixedFvPatchVectorField.C
 $(solidFvPatchFields)/thermalConvection/thermalConvectionFvPatchScalarField.C
+$(solidFvPatchFields)/linearSpatialDisplacement/rotatedSpatialDisplacementFvPatchVectorField.C
 
 pointPatchFields = solidModels/pointPatchFields
 

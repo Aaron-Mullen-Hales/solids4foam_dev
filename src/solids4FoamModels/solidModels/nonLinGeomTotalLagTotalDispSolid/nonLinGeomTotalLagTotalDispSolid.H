@@ -92,6 +92,8 @@ class nonLinGeomTotalLagTotalDispSolid
         //- Predict new time-step fields using the velocity field
         const Switch predictor_;
 
+        // Adding a bool switch for formJacobian process 
+        mutable bool preconditionerBuilt_ = false;
     // Private Member Functions
 
         //- Predict the fields for the next time-step based on the

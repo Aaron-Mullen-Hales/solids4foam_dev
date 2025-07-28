@@ -65,6 +65,8 @@ PetscErrorCode formJacobianFoamPetscSnesHelper
     void *ctx     // user context
 )
 {
+  Foam::Info<< "The formJacobian used petsc helper: "
+	    << __FILE__ << " Line: " << __LINE__ << Foam::nl << Foam::endl;
     // Get pointer to solution data
     const PetscScalar *xx;
     CHKERRQ(VecGetArrayRead(x, &xx));

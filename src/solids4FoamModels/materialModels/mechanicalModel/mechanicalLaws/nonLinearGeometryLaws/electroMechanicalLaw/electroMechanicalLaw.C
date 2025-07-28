@@ -106,9 +106,22 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     const volSymmTensorField f0f0 =
         mesh().lookupObject<volSymmTensorField>("f0f0");
 
+    //const volVectorField& f0 = mesh().lookupObject<volVectorField>("f0");
+    //const volSymmTensorField f0 =
+      //mesh().lookupObject<volSymmTensorField>("f0");
+    //f0f0 = f0f0 / mag(f0f0)
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const volTensorField& F = this->F();
+
+    //updating f (wrong method as we use reference configuration)
+    // volVectorField f = (F & f0).ref();
+    // f /= (mag(f) + SMALL);
+    // //volScalarField ff("ff", sqr(f));                                                                                                                      
+    // //ff("ff", sqr(f)),                                                                                                                                     
+    // //ff = sqr(f);                                                                                                                                          
+    // tmp<volSymmTensorField> tff = sqr(f);
+    // const volSymmTensorField& ff = tff();
 
     // Calculate the Jacobian of the deformation gradient
     const volScalarField J(det(F));
@@ -121,13 +134,33 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     dimensionedScalar currentTa = Ta_;
     if (mesh().time().value() < rampTime_)
     {
-        currentTa = (mesh().time().value()/rampTime_)*Ta_;
+      //currentTa = Ta_;
+      currentTa = (mesh().time().value()/rampTime_)*Ta_;
+      //currentTa = Ta_;
     }
 
     // Add active stress to the passive stress
     // Note that the active stress is converted from a 2nd Piola-Kirchhoff
     // stress to a Cauchy stress
-    sigma += J*symm(F & (currentTa*f0f0) & F.T());
+    //sigma += (1.0/J)*symm(F & (currentTa*ff) & F.T());
+
+
+    //2nd piola
+    //sigma += currentTa*f0f0;
+    
+    sigma += (1.0/J)*symm(F & (currentTa*f0f0) & F.T());
+    //volScalarField nMagSq = sqr(F & f0);
+
+    //sigma += (1.0/J)*nMagSq;
+
+    
+    
+
+    //sigma += (currentTa/J)*(F & volTensorField("f0f0tensor", tensor(f0f0)) & F.T());
+    //sigma += (currentTa/J)*(F & volTensorField("f0f0tensor", f0f0) & F.T());
+
+
+    //sigma += ((1/J)*symm(F & (currentTa) & F.T()))*f0f0;
 }
 
 
@@ -142,6 +175,9 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     const surfaceSymmTensorField f0f0 =
         mesh().lookupObject<surfaceSymmTensorField>("f0f0f");
 
+    //const volSymmTensorField f0 =
+    //mesh().lookupObject<volSymmTensorField>("f0");
+    //f0f0 = f0f0/ mag(f0f0)
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const surfaceTensorField& F = this->Ff();
@@ -157,13 +193,21 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     dimensionedScalar currentTa = Ta_;
     if (mesh().time().value() < rampTime_)
     {
-        currentTa = (mesh().time().value()/rampTime_)*Ta_;
+      //currentTa = Ta_;
+      currentTa = (mesh().time().value()/ rampTime_)*Ta_;
+      //currentTa = Ta_;
     }
 
     // Add active stress to the passive stress
     // Note that the active stress is converted from a 2nd Piola-Kirchhoff
     // stress to a Cauchy stress
-    sigma += J*symm(F & (currentTa*f0f0) & F.T());
+    //sigma += (currentTa/J)*(F & volTensorField("f0f0tensor", tensor(f0f0)) & F.T());
+    sigma += (1.0/J)*symm(F & (currentTa*f0f0) & F.T());
+    //sigma += (currentTa/J)*(F & volTensorField("f0f0tensor", f0f0) & F.T());
+
+
+    
+    //sigma += ((1/J)*symm(F & (currentTa) & F.T()))*f0f0;
 }
 
 

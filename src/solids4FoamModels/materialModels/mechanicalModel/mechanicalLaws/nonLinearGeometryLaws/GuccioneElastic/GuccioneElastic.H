@@ -37,7 +37,7 @@ Author
 
 #include "mechanicalLaw.H"
 #include "surfaceFields.H"
-
+#include "autoPtr.H"
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -73,6 +73,7 @@ class GuccioneElastic
         const Switch uniformFibreField_;
 
         //- Fibre directions in the reference configuration
+        //mutable autoPtr<volVectorField> f0_;
         volVectorField f0_;
         surfaceVectorField f0f_;
 
@@ -101,7 +102,6 @@ class GuccioneElastic
 
 
     // Private Member Functions
-
         //- Create f0 field
         tmp<volVectorField> makeF0
         (

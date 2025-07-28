@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------*\
+/*--------------------------------------------AA-------------------------------*\
 License
     This file is part of solids4foam.
 
@@ -19,6 +19,7 @@ License
 
 #include "GuccioneElastic.H"
 #include "addToRunTimeSelectionTable.H"
+#include "products.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -275,14 +276,14 @@ Foam::GuccioneElastic::GuccioneElastic
     ct_(readScalar(dict.lookup("ct"))),
     cfs_(readScalar(dict.lookup("cfs"))),
     // Check: is this mu equivalent to the linearised shear modulus?
-    mu_((0.75*(cf_ - 2.0*cfs_ + 2.0*cfs_)*k_)),
-    //mu_(0.25*cf_*k_),
+    //mu_((0.75*(cf_ - 2.0*cfs_ + 2.0*cfs_)*k_)),
+    // attempting a different value for mu:
+    mu_( (1.0/3.0)*k_*(2.0*cfs_ + ct_) ),
     uniformFibreField_
     (
         dict.lookupOrDefault<Switch>("uniformFibreField", false)
     ),
     f0_(makeF0(uniformFibreField_, mesh, dict)),
-    // f0f_(makeF0f(uniformFibreField_, mesh, dict)),
     f0f_(makeF0f(true, mesh, dict)), // disable f0f
     s0_
     (
@@ -363,6 +364,7 @@ Foam::GuccioneElastic::GuccioneElastic
         dimensionedTensor("0", dimless, tensor::zero)
     ),
     f0f0_("f0f0", sqr(f0_)),
+    //f0f0_("f0f0", symm(f0_ & f0_)),
     f0f0f_("f0f0f", sqr(f0f_)),
     S_
     (
@@ -421,13 +423,7 @@ Foam::GuccioneElastic::GuccioneElastic
 
     // Re-calculate f0f0
     f0f0_ = sqr(f0_);
-    //forAll(f0_, i)
-    //{
-    //	forAll(f0_, j)
-    //	  {
-    //	    f0f0_[i] = symm(f0_[i] * f0_[j]);
-    //	  }
-    //}
+    
     f0f0f_ = sqr(f0f_);
 
     // Store old F
@@ -469,22 +465,29 @@ Foam::GuccioneElastic::GuccioneElastic
     n0f_ /= mag(n0f_);
 
     // Assign the components of R
+    //f0
     R_.replace(tensor::XX, f0_.component(vector::X));
     R_.replace(tensor::YX, f0_.component(vector::Y));
     R_.replace(tensor::ZX, f0_.component(vector::Z));
-    R_.replace(tensor::YY, s0_.component(vector::X));
+    //s0
+    R_.replace(tensor::XY, s0_.component(vector::X));
     R_.replace(tensor::YY, s0_.component(vector::Y));
     R_.replace(tensor::ZY, s0_.component(vector::Z));
-    R_.replace(tensor::YZ, n0_.component(vector::X));
+    //n0
+    R_.replace(tensor::XZ, n0_.component(vector::X));
     R_.replace(tensor::YZ, n0_.component(vector::Y));
     R_.replace(tensor::ZZ, n0_.component(vector::Z));
+    //surface
+    //f0f
     Rf_.replace(tensor::XX, f0f_.component(vector::X));
     Rf_.replace(tensor::YX, f0f_.component(vector::Y));
     Rf_.replace(tensor::ZX, f0f_.component(vector::Z));
-    Rf_.replace(tensor::YY, s0f_.component(vector::X));
+    //s0f
+    Rf_.replace(tensor::XY, s0f_.component(vector::X));
     Rf_.replace(tensor::YY, s0f_.component(vector::Y));
     Rf_.replace(tensor::ZY, s0f_.component(vector::Z));
-    Rf_.replace(tensor::YZ, n0f_.component(vector::X));
+    //n0f
+    Rf_.replace(tensor::XZ, n0f_.component(vector::X));
     Rf_.replace(tensor::YZ, n0f_.component(vector::Y));
     Rf_.replace(tensor::ZZ, n0f_.component(vector::Z));
 
@@ -511,6 +514,9 @@ Foam::GuccioneElastic::~GuccioneElastic()
 
 Foam::tmp<Foam::volScalarField> Foam::GuccioneElastic::impK() const
 {
+  //scalar bulkModulusValue = bulkModulus_; // no unit checks, just number
+  scalar bulkModulusValue = bulkModulus_.value();
+  scalar correctedValue = pow(bulkModulusValue, 1.0/3.0);
     return tmp<volScalarField>
     (
         new volScalarField
@@ -524,7 +530,7 @@ Foam::tmp<Foam::volScalarField> Foam::GuccioneElastic::impK() const
                 IOobject::NO_WRITE
             ),
             mesh(),
-            (cf_ - 2.0*cfs_ + 2.0*cfs_)*k_ // + bulkModulus_ // 2*mu + lambda == (4/3)*mu + kappa
+            (cf_ - 2.0*cfs_ + 2.0*cfs_)*k_  //+ bulkModulus_ //+ ((bulkModulus_ / bulkModulusValue)*correctedValue) // 2*mu + lambda == (4/3)*mu + kappa
         )
     );
 }
@@ -691,38 +697,52 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
     // Update the deformation gradient field
     // Note: if true is returned, it means that linearised elasticity was
     // enforced by the solver via the enforceLinear switch
-    if (updateF(sigma, mu_, bulkModulus_))
-    {
-        return;
-    }
+
+
+    //Hard coding the update to F:
+
+    //gettinf the grad D field:
+    const volTensorField& gradDD =
+      mesh().lookupObject<volTensorField>("grad(DD)");
+
+   //updating the deformation gradient:
+    F() = F().oldTime() + gradDD.T();
+
+  
+    // if (updateF(sigma, mu_, bulkModulus_))
+    // {
+    //    return;
+    // }
+    
 
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const volTensorField& F = this->F();
 
+
+    //code for updating f (this is wrong since we use the reference configuration)
+    // volVectorField f = (F & f0_).ref();
+    // f /= (mag(f) + SMALL);
+    // //volScalarField ff("ff", sqr(f));
+    // //ff("ff", sqr(f)),
+    // //ff = sqr(f);
+    // tmp<volSymmTensorField> tff = sqr(f);
+    // const volSymmTensorField& ff = tff();
+
+    //tmp<volScalarField> tff = sqr(f);
+    //const volScalarField& ff = tff(); 
     // Calculate the Jacobian of the deformation gradient
     const volScalarField J(det(F));
-
-    // Calculate J^{-2/3}
-    // const volScalarField Jm23(pow(J, -2.0/3.0));
-
-    // // Calculate the full (non-symmetric) right Cauchy–Green tensor
-    // const volTensorField C_full(F.T() & F);
-
-    // // Apply the volumetric correction
-    // //const volTensorField C_bar = Jm23 * C_full;
-
-    // const volTensorField& C_bar = (Jm23 * C_full).ref();
-    
-    // If you want the symmetric part:
-    //    const volSymmTensorField C(symm(C_bar));
-
-    //const volSymmTensorField C(symm(pow(max(J, SMALL), -2.0/3.0) * (F.T() & F)));
-
     
     // Calculate the right Cauchy–Green deformation tensor
     const volSymmTensorField C(symm(F.T() & F));
 
+
+    //testing model in 2nd piola kirchoff form
+    //const volSymmTensorField Cinv = invert(C);
+    //volSymmTensorField Cinv(C.mesh());
+    //forAll(C, i) Cinv[i] = invert(C[i]);
+    
     // Calculate the Green-Lagrange strain
     const volSymmTensorField E(0.5*(C - I));
 
@@ -796,27 +816,9 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
         // Calculate the invariants of E
         const volScalarField I1(tr(E));
         const volScalarField I2(0.5*(sqr(tr(E)) - tr(sqrE)));
+	//const volScalarField I4(E && ff);
         const volScalarField I4(E && f0f0_);
-        const volScalarField I5(sqrE && f0f0_);
-
-
-	// const tmp<volScalarField> tExx = E.component(symmTensor::XX);
-	// const volScalarField& Exx = tExx.ref();
-
-	// const tmp<volScalarField> tEyy = E.component(symmTensor::YY);
-	// const volScalarField& Eyy = tEyy.ref();
-
-	// const tmp<volScalarField> tEzz = E.component(symmTensor::ZZ);
-	// const volScalarField& Ezz = tEzz.ref();
-
-	// const tmp<volScalarField> tExy = E.component(symmTensor::XY);
-	// const volScalarField& Exy = tExy.ref();
-
-	// const tmp<volScalarField> tExz = E.component(symmTensor::XZ);
-	// const volScalarField& Exz = tExz.ref();
-
-	// const tmp<volScalarField> tEyz = E.component(symmTensor::YZ);
-	// const volScalarField& Eyz = tEyz.ref();
+	const volScalarField I5(sqrE && f0f0_);
 
 	
         // Calculate Q
@@ -866,7 +868,9 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
 	   // + 2.0 * cfs_ * symm(E)
 
 	   2.0*ct_*E
+	   //+ 2.0*(cf_ - 2.0*cfs_ + ct_)*I4*ff
 	   + 2.0*(cf_ - 2.0*cfs_ + ct_)*I4*f0f0_
+	   //+ 2.0*(cfs_ - ct_)*symm((E & ff) + (ff & E))
 	   + 2.0*(cfs_ - ct_)*symm((E & f0f0_) + (f0f0_ & E))
 	   );
 
@@ -876,19 +880,67 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
 
     // Convert the second Piola-Kirchhoff stress to the Cauchy stress and take
     // the deviatoric component
-    const volSymmTensorField s(dev((1/J)*symm(F & S_ & F.T())));
+    const volSymmTensorField s((1/J)*symm(F & S_ & F.T()));
 
     //const volSymmTensorField s(dev(J*symm(F & S_ & F.T())));
     // Calculate the hydrostatic stress
-    updateSigmaHyd
-    (
-        0.5*bulkModulus_*(pow(J, 2.0) - 1.0)/J,
-        (4.0/3.0)*mu_ + bulkModulus_
-    );
+
+    //explicity or hardcoding the updateSigmaHyd functionality:
+
+    //adding option for solving pressure
+    //solvePressureEqn_ = mechanicalLawDict_.lookupOrDefault<Switch>("solvePressureEqn", false);
+
+    //Foam::Switch solvePressureEqn_;
+    //solvePressureEqn_(dict.lookupOrDefault<Foam::Switch>("solvePressureEqn", false))
+      
+    //calculating SigmaHyd explicitly:
+    volScalarField sigmaHydExplicit
+      (
+       IOobject("sigmaHydExplicit",
+		mesh().time().timeName(),
+		mesh()
+		),
+       0.5 * bulkModulus_ * (pow(J,2.0) -1.0 ) /J
+       );
+
+    // creating a tmp field for impK
+    tmp<volScalarField> impK = tmp<volScalarField>
+      (
+
+       new volScalarField(
+			  IOobject(
+				   "impK",
+				   mesh().time().timeName(),
+				   mesh(),
+				   IOobject:: NO_READ,
+				   IOobject:: NO_WRITE
+				   ),
+			  mesh(),
+			  (4.0/3.0) * mu_ //+ bulkModulus_
+
+			  )
+       );
+
+    //updating if pressure is to be solved:
+    // if(solvePressureEqn_)
+    //   {
+	
+    //   }
+
+    sigmaHyd() = sigmaHydExplicit;
+    
+    // updateSigmaHyd
+    // (
+    //     0.5*bulkModulus_*(pow(J, 2.0) - 1.0)/J,
+    //     (4.0/3.0)*mu_ + bulkModulus_
+    // );
 
     // Convert the second Piola-Kirchhoff deviatoric stress to the Cauchy stress
     // and add hydrostatic stress term
     sigma = s + sigmaHyd()*I;
+
+    //2nd piola version
+    //sigma = S_ + sigmaHyd()*I;
 }
 
 
