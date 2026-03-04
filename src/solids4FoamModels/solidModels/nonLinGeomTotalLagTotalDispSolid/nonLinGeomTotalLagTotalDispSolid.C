@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------*\
+/*---------------------------------------------------------------------------* \
 License
     This file is part of solids4foam.
 
@@ -16,7 +16,6 @@ License
     along with solids4foam.  If not, see <http://www.gnu.org/licenses/>.
 
 \*---------------------------------------------------------------------------*/
-
 #include "nonLinGeomTotalLagTotalDispSolid.H"
 #include "fvm.H"
 #include "fvc.H"
@@ -122,8 +121,8 @@ void nonLinGeomTotalLagTotalDispSolid::enforceTractionBoundaries
 
             const vectorField& nPatch = nCurrent.boundaryField()[patchI];
 
-            // traction.boundaryFieldRef()[patchI] =
-            //     tracPatch.traction() - nPatch*tracPatch.pressure();
+	    //       traction.boundaryFieldRef()[patchI] =
+	    //  tracPatch.traction() - nPatch*tracPatch.pressure();
             if (tracPatch.useUndeformedArea())
             {
                 const scalarField& magSfPatch =
@@ -132,7 +131,7 @@ void nonLinGeomTotalLagTotalDispSolid::enforceTractionBoundaries
                 forceP =
                     (
                         tracPatch.traction() - nPatch*tracPatch.pressure()
-                    )*magSfPatch;
+		     )*magSfPatch;
             }
             else
             {
@@ -142,7 +141,7 @@ void nonLinGeomTotalLagTotalDispSolid::enforceTractionBoundaries
                 forceP =
                     (
                         tracPatch.traction() - nPatch*tracPatch.pressure()
-                    )*magSfCurrentPatch;
+		     )*magSfCurrentPatch;
             }
         }
         else if
@@ -434,13 +433,20 @@ bool nonLinGeomTotalLagTotalDispSolid::evolveSnes()
         p().correctBoundaryConditions();
 
         // Update dpdt
-        autoPtrRef(dpdtPtr_) = fvc::ddt(p());
+        //autoPtrRef(dpdtPtr_) = fvc::ddt(p());
     }
 
+    // Update gradient of displacement
+    mechanical().grad(D(), gradD());
     // Interpolate cell displacements to vertices
     mechanical().interpolate(D(), gradD(), pointD());
     pointD().correctBoundaryConditions();
 
+    // Update total deformation gradient
+    //F_ = I + gradD().T(); // or your preferred linearized version
+
+    // Update Jacobian to match -tr(gradD) exactly
+    //J_ = 1.0 + tr(gradD()); // linearized Jacobian
     // Increment of displacement
     DD() = D() - D().oldTime();
 
@@ -611,6 +617,19 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         solvePressure()
       ? label(solidModel::twoD() ? 3 : 4)
       : label(solidModel::twoD() ? 2 : 3)
+     ),
+    ds_
+    (
+        IOobject
+	(
+            "ds",
+            mesh().time().timeName(),
+            mesh(),
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+	),
+        mesh(),
+        dimensionedScalar("ds", (dimForce/dimVolume)/dimVelocity, 1.0)
     )
 {
     DisRequired();
@@ -622,6 +641,9 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
     // constructor to allow it to correctly initialise fields
     mechanical().correct(sigma());
 
+    D().correctBoundaryConditions();
+    D().storePrevIter();
+    mechanical().grad(D(), gradD());
     Info<< "solvePressure = " << solvePressure() << endl;
     if (solvePressure())
     {
@@ -637,6 +659,7 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         }
 
         // Ensure p is created and the oldTime is stored
+	//p();
         p().oldTime();
 
         // Initialise dpdt field
@@ -820,10 +843,11 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     const Vec x
 )
 {
+    static label iterCount = 0;
     const fvMesh& mesh = this->mesh();
 
     //adding a scaling term to try make it easier for the linear solver in these problems.
-    scalar unitsPressureScale = solidModelDict().lookupOrDefault<scalar>("unitsPressureScale", 1.0);
+    //scalar unitsPressureScale = solidModelDict().lookupOrDefault<scalar>("unitsPressureScale", 1.0);
     // Copy x into the D field
     volVectorField& D = const_cast<volVectorField&>(this->D());
     vectorField& DI = D;
@@ -858,14 +882,155 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     // Inverse of the deformation gradient
     Finv_ = inv(F_);
 
+    //Finv transpose
+    //Finv_T_ = Finv_.T()
+
     // Jacobian of the deformation gradient
     J_ = det(F_);
+    //J_ = I + tr(gradD());
+    //J_ =volScalarField("J_", mesh, 1.0) + tr(gradD());
 
-    //    scalar minJ = gMin(J_);
-    //scalar maxJ = gMax(J_);
+    // volScalarField J_linear
+    //   (
+    //    IOobject("J_linear", mesh.time().timeName(), mesh, IOobject::NO_READ, IOobject::NO_WRITE),
+    //    mesh,
+    //    dimensionedScalar("one", dimless, 1.0)
+    //    );
 
-    //Info << "Nonlinear solid: min(J_) = " << minJ 
-    //	 << ", max(J_) = " << maxJ << endl;
+    // J_linear += tr(gradD());
+    // J_ = J_linear;   // assign to your main J_
+
+    // J_ = 1.0 + tr(gradD());
+    // forAll(J_, cellI)
+    //   {
+    // 	const tensor& Fc = gradD()[cellI];
+    // 	// Force exact equality with -tr(gradD())
+    // 	J_[cellI] = 1.0 - (-Fc.xx() - Fc.yy() - Fc.zz());
+    //   }
+
+    // // Boundary patches
+    // forAll(J_.boundaryField(), patchI)
+    //   {
+    // 	const tensorField& gradDb = gradD().boundaryField()[patchI];
+    // 	scalarField& Jb = J_.boundaryFieldRef()[patchI];
+
+    // 	forAll(gradDb, faceI)
+    // 	  {
+    // 	    const tensor& Fc = gradDb[faceI];
+    // 	    Jb[faceI] = 1.0 - (-Fc.xx() - Fc.yy() - Fc.zz());
+    // 	  }
+    //   }
+
+    // Info<< "max(detF_manual - 1): " << -(max(J_) - 1) << nl
+    // 	<< "min(detF_manual - 1): " <<  -(min(J_) - 1.0 )<< nl
+    //  << "max(-tr(gradD))    : " << max(-tr(gradD())) << nl
+    //  << "min(-tr(gradD))    : " << min(-tr(gradD())) << endl;
+
+    //    const volTensorField& F = F_;       // deformation gradient
+
+
+    // NEED THIS TO PRINT OUT MANUAL DETERMINANT OF F (J_ = det(F_))
+    // const volTensorField& F = F_;
+    // // Manual determinant computation (per cell)
+    // volScalarField detF_manual(
+    // 			       IOobject("detF_manual", mesh.time().timeName(), mesh),
+    // 			       mesh,
+    // 			       dimensionedScalar("zero", dimless, 0.0)
+    // 			       );
+
+
+    // // --- Internal field
+    // forAll(detF_manual, cellI)
+    //   {
+    // 	const tensor& Fc = F[cellI];
+
+    // 	// Force all intermediates to double
+    // 	const double f11 = static_cast<double>(Fc.xx());
+    // 	const double f12 = static_cast<double>(Fc.xy());
+    // 	const double f13 = static_cast<double>(Fc.xz());
+    // 	const double f21 = static_cast<double>(Fc.yx());
+    // 	const double f22 = static_cast<double>(Fc.yy());
+    // 	const double f23 = static_cast<double>(Fc.yz());
+    // 	const double f31 = static_cast<double>(Fc.zx());
+    // 	const double f32 = static_cast<double>(Fc.zy());
+    // 	const double f33 = static_cast<double>(Fc.zz());
+
+    // 	// Compute det in double precision
+    // 	const double detF_d =
+    // 	  f11*(f22*f33 - f23*f32)
+    // 	  - f12*(f21*f33 - f23*f31)
+    // 	  + f13*(f21*f32 - f22*f31);
+
+    // 	// Store back as scalar
+    // 	detF_manual[cellI] = static_cast<scalar>(detF_d);
+    //   }
+
+    // // --- Boundary field
+    // forAll(detF_manual.boundaryField(), patchI)
+    //   {
+    // 	const tensorField& Fb = F.boundaryField()[patchI];
+    // 	scalarField& detFb = detF_manual.boundaryFieldRef()[patchI];
+
+    // 	forAll(Fb, faceI)
+    // 	  {
+    // 	    const tensor& Fc = Fb[faceI];
+
+    // 	    // Force all intermediates to double
+    // 	    const double f11 = static_cast<double>(Fc.xx());
+    // 	    const double f12 = static_cast<double>(Fc.xy());
+    // 	    const double f13 = static_cast<double>(Fc.xz());
+    // 	    const double f21 = static_cast<double>(Fc.yx());
+    // 	    const double f22 = static_cast<double>(Fc.yy());
+    // 	    const double f23 = static_cast<double>(Fc.yz());
+    // 	    const double f31 = static_cast<double>(Fc.zx());
+    // 	    const double f32 = static_cast<double>(Fc.zy());
+    // 	    const double f33 = static_cast<double>(Fc.zz());
+
+    // 	    // Compute det in double precision
+    // 	    const double detF_d =
+    // 	      f11*(f22*f33 - f23*f32)
+    // 	      - f12*(f21*f33 - f23*f31)
+    // 	      + f13*(f21*f32 - f22*f31);
+
+    // 	    // Store back as scalar
+    // 	    detFb[faceI] = static_cast<scalar>(detF_d);
+    // 	  }
+    //   }
+
+
+
+    // // --- Internal field
+    // forAll(detF_manual, cellI)
+    //   {
+    // 	const tensor& Fc = F[cellI];
+    // 	// Linearized det(F) ~ 1 + tr(F - I) = 1 + tr(gradD)
+    // 	double trGradD = static_cast<double>(Fc.xx() + Fc.yy() + Fc.zz() - 3.0);
+    // 	detF_manual[cellI] = scalar(1.0 + trGradD);
+    //   }
+
+    // // --- Boundary patches
+    // forAll(detF_manual.boundaryField(), patchI)
+    //   {
+    // 	const tensorField& Fb = F.boundaryField()[patchI];
+    // 	scalarField& detFb = detF_manual.boundaryFieldRef()[patchI];
+
+    // 	forAll(Fb, faceI)
+    // 	  {
+    // 	    const tensor& Fc = Fb[faceI];
+    // 	    double trGradD = static_cast<double>(Fc.xx() + Fc.yy() + Fc.zz() - 3.0);
+    // 	    detFb[faceI] = scalar(1.0 + trGradD);
+    // 	  }
+    //   }
+
+
+
+
+    // detF_manual.correctBoundaryConditions();
+
+    // Info<< "max(detF_manual - 1): " << max(detF_manual) - 1.0 << nl
+    // 	<< "min(detF_manual - 1): " <<  min(detF_manual) - 1.0 << nl
+    // 	<< "max(-tr(gradD))    : " << max(-tr(gradD())) << nl
+    // 	<< "min(-tr(gradD))    : " << min(-tr(gradD())) << endl;
 
     // Calculate the stress using run-time selectable mechanical law
     mechanical().correct(sigma());
@@ -880,11 +1045,21 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
             x, pI, blockSize_ - 1
         );
 
+	//dimensionedScalar mu_("mu", [1 -1 -2 0 0 0 0] );
+	const dimensionedScalar mu_("mu", solidModelDict());
+	const dimensionedScalar lambda_("lambda", solidModelDict());
         // Enforce the boundary conditions
         p.correctBoundaryConditions();
-
         // Replace the pressure component of stress
-        sigma() = dev(sigma()) - (p * unitsPressureScale)*I;
+	//sigma() = 2*symm(mu_ *gradD()) + lambda_*tr(gradD())*I;
+	//sigma() = 2*symm(mu_ *gradD()) + lambda_*tr(gradD())*I;
+
+	//Normal Way -- non Guccione
+	sigma() = dev(sigma()) - p*I;
+
+	//Attempting Guccione- which might need all of sigma:
+	//sigma() = sigma() - p*I;
+        //sigma() = dev(sigma()) - (p * unitsPressureScale)*I;
     }
 
     // Unit normal vectors at the faces
@@ -895,6 +1070,14 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     );
     const surfaceScalarField magSfCurrent(mag(SfCurrent));
     const surfaceVectorField nCurrent(SfCurrent/magSfCurrent);
+
+    // const surfaceVectorField SfCurrent
+    // (
+    //     mesh.Sf()
+    // );
+    // const surfaceScalarField magSfCurrent(mag(SfCurrent));
+    // const surfaceVectorField nCurrent(SfCurrent/magSfCurrent);
+    //    const surfaceVectorField nCurrent(mesh.Sf()/mesh.magSf());
 
     // Traction vectors at the faces
     //surfaceVectorField traction(n & fvc::interpolate(sigma()));
@@ -912,10 +1095,12 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     traction += scaleFactor*impKf_*(fvc::snGrad(D) - (n & gradDf));
 
     // Calculate the force at the faces
+    //surfaceVectorField force(traction);
     surfaceVectorField force(magSfCurrent*traction);
 
     // Enforce traction boundary conditions
     enforceTractionBoundaries(force, D, nCurrent, magSfCurrent);
+    //enforceTractionBoundaries(traction, D, nCurrent, magSfCurrent);
 
     // The residual vector is defined as
     // F = div(sigma) + rho*g
@@ -923,7 +1108,8 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
     // where, here, we roll the stabilisationTerm into the div(sigma)
     vectorField residual
     (
-        // fvc::div(magSfCurrent*traction)
+     //fvc::div(mesh.magSf()*traction)
+     // fvc::div(magSfCurrent*traction)
         fvc::div(force)
       + rho()
        *(
@@ -951,8 +1137,10 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 
     if (solvePressure())
     {
+      //p.correctBoundaryConditions();
         volScalarField& p = const_cast<volScalarField&>(this->p());
 
+	//p.correctBoundaryConditions();
         // Divided by bulkModulus form
         const volScalarField kappa("kappa", mechanical().bulkModulus());
         const surfaceScalarField kappaf(fvc::interpolate(kappa));
@@ -962,6 +1150,23 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
         const word stabilisationType =
           solidModelDict().lookupOrDefault<word>("stabilisationType", "rhieChow");
 
+	// const tmp<volScalarField> lambdaField = mechanical().bulkModulus() - (2.0/3.0)*mechanical().shearModulus();
+	// const volScalarField& lambda = lambdaField(); // underlying volScalarField reference
+	// const surfaceScalarField lambdaf = fvc::interpolate(lambda);
+	// Step 1: create the lambda volScalarField
+	//tmp<volScalarField> lambdaField = mechanical().bulkModulus() - (2.0/3.0)*mechanical().shearModulus();
+	//const volScalarField& lambda = lambdaField(); // extract the underlying volScalarField
+
+	// Step 2: interpolate → tmp<surfaceScalarField>
+	//tmp<surfaceScalarField> lambdafTmp = fvc::interpolate(lambda);
+
+	// Step 3: extract the underlying surfaceScalarField
+	//const surfaceScalarField& lambdaf = lambdafTmp();
+
+	// Info<< "max(tr(gradD)) " << max(tr(gradD())) << nl
+	//     << "min(tr(gradD)) " << min(tr(gradD())) << nl
+	//     << "max(J) " << max(0.5*(sqr(J_) -1)/J_) << nl
+	//     << "min(J) " << min(0.5*(sqr(J_) -1)/J_) << endl;
 
 	scalarField pressureResidual(mesh.nCells(), 0.0);
 	if (stabilisationType == "rhieChow")
@@ -975,33 +1180,216 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 	     + fvc::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
 	     - fvc::div
 	     (
-		 (pDiffusivity()/kappaf)*mesh.Sf()
+	      (pDiffusivity()/kappaf)*mesh.Sf()
+	      //(pDiffusivity()/kappaf)*SfCurrent
 	       & fvc::interpolate(fvc::grad(p))
 	     )
 	  //-0.5*kappa*(pow(J_, 2.0) - 1.0)/(J_) //*(1e-6))
-	  -0.5*unitsPressureScale*(pow(J_, 2.0) - 1.0)/(J_)
+	     //- tr(gradD())
+
+	     -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+	     //-0.5*unitsPressureScale*(pow(J_, 2.0) - 1.0)/(J_)
 	     );
+
+	}
+	else if (stabilisationType == "HigherOrder")
+	  {
+	    //const volScalarField h2("h2", 1.0/sqr(mesh.deltaCoeffs()));  // L^2
+
+	    const surfaceScalarField h2
+	      (
+	       "h2",
+	       1.0/sqr(mesh.deltaCoeffs())   // L^2 on faces
+	       );
+	    // const volScalarField h2c
+	    //   (
+	    //    "h2c",
+	    //    fvc::interpolate(h2)  // face -> cell (or see Fix 2)
+	    //    );
+	    const volScalarField L1("L1", fvc::laplacian(p));            // p/L^2
+	    const volScalarField L2("L2", fvc::laplacian(L1));           // p/L^4
+	    const volScalarField L3("L3", fvc::laplacian(L2));           // p/L^6
+
+	    // dimensionless stabilisation term:
+	    //const volScalarField stabDimless("stabDimless", pow(h2,3) * (L3/kappa));  // (L^6)*(p/L^6)/kappa = p/kappa = dimensionless
+
+	    // Create the diffusivity field properly
+	    const volScalarField stab
+	      (
+	       fvc::laplacian
+	       (
+		fvc::laplacian
+		(
+		 fvc::laplacian(1.0/(impKf_*sqr(mesh.deltaCoeffs())), p)
+		 )
+		)
+	       );
+	    surfaceScalarField beta
+	      (
+	       "beta",
+	       omega/(impKf_*sqr(mesh.deltaCoeffs()))
+	       );
+
+	    volScalarField sixthOrderStabilisation
+	      (
+	       "sixthOrderStabilisation",
+	       fvc::laplacian
+	       (
+		fvc::laplacian
+		(
+		 fvc::laplacian(beta, p)   // beta is face-based: OK here
+		 )
+		)
+	       );
+	    //Info<< "dims(stab)    = " << sixthOrderStabilisation.dimensions() << nl;
+	    //Info<< "dims(p)    = " << p.dimensions() << nl;
+	    //Info<< "dims(kappa)    = " << kappa.dimensions() << nl;
+
+
+	    //const volScalarField Dp(pDiffusivity()/impK_);
+	    pressureResidual =
+	    (
+	     - p/kappa
+	     //+ omega*fvc::laplacian(omega*fvc::laplacian(omega*fvc::laplacian(omega*1.0/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)")))
+	     + sixthOrderStabilisation
+	  //-0.5*kappa*(pow(J_, 2.0) - 1.0)/(J_) //*(1e-6))
+	     //- tr(gradD())
+
+	     -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+	     //-0.5*unitsPressureScale*(pow(J_, 2.0) - 1.0)/(J_)
+	     );
+	    //Info<< "dims(p/kappa) = " << (p/kappa).dimensions() << nl;
 
 	}
 	else if (stabilisationType == "oosterlee")
 	{
+	  if (iterCount < 100000000){
 	    // Oosterlee formulation
-	    pressureResidual =
-	      (
+	    //p.correctBoundaryConditions();
+
+	    const word pressureConfig = solidModelDict().lookupOrDefault<word>("pressureConfig", "reference");
+
+	    if (pressureConfig == "deformed") {
+	      // Deformed configuration pressure
+	      //const surfaceScalarField kappafCurrent = fvc::interpolate(kappa*J_);
+	      // const surfaceScalarField kappafCurrent(fvc::interpolate(kappa*J_));
+	      // const surfaceVectorField gradpCurrent(fvc::interpolate(Finv_ & fvc::grad(p)));
+	      // const surfaceScalarField DpDeformed(
+	      // 					  fvc::interpolate(J_) * omega/(impKf_*sqr(mesh.deltaCoeffs()))
+	      // 					  );
+
+	      // Use Nanson's formula to get deformed face areas
+	      const surfaceTensorField FinvTf(fvc::interpolate(Finv_.T()));
+	      const surfaceScalarField Jf(fvc::interpolate(J_));
+	      const surfaceVectorField SfCurrent(Jf * (FinvTf & mesh.Sf()));
+	      const surfaceScalarField magSfCurrent(mag(SfCurrent));
+
+	      // Compute deformed cell distances (approximate) by scaling
+	      // the mesh deltacoeffs by the ratio of deformed to reference
+	      const surfaceScalarField deltaCurrent(
+						    (magSfCurrent/mesh.magSf()) * mesh.deltaCoeffs()
+						    );
+
+	      // Stabilization based on deformed geometry
+	      const surfaceScalarField DpDeformed(
+						  omega/(impKf_ * sqr(deltaCurrent))
+						  );
+	      //const surfaceScalarField DpDeformed = fvc::interpolate(J_ * Finv_ & Finv_.T()) * omega/(impKf_*sqr(mesh.deltaCoeffs()));
+	      //const surfaceVectorField gradpCurrent = fvc::interpolate(Finv_ & fvc::grad(p));
+
+	      pressureResidual =
+		(
+		 - p/kappa
+		 + fvc::laplacian(DpDeformed, p, "laplacian(DpDeformed,p)")
+		 //+ fvc::div(omega * kappafCurrent * (mesh.Sf()/mesh.magSf()) & gradpCurrent)
+		 -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+		 //- (J_ - 1.0)
+		 );
+	    }
+	    else {
+	      // Reference configuration (your current with simplified volume change)
+	      pressureResidual =
+		(
+		 - p/kappa
+		 + fvc::laplacian(omega/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)")
+		 -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+		 //- (J_ - 1.0)  // Use this instead of complex form for better convergence
+		 );
+	    }
+	  }
+
+
+	    //old previous approach:
+
+
+	    // pressureResidual =
+	    //   (
+	    //    //p.correctBoundaryConditions();
+	    //    //lambdaf
+	    //    //- p/lambda +
+	    //    - p/kappa +
+	    //    fvc::laplacian(omega/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)")
+	    //    //              - fvc::div(((omega/sqr(mesh.deltaCoeffs())))*mesh.Sf() & fvc::interpolate(fvc::grad(p)))
+	    //    // Different stabilisation term(s) here
+	    //    //+ 1 - (1 + tr(gradD()))
+	    //    //- tr(gradD()) - 0.5*(sqr(tr(gradD())) - tr( gradD() & gradD() ) )
+	    //    -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+	    //    //trying taylor series approximation
+	    //    //2nd order
+	    //    //-(J_ - 1 - 0.5*sqr(J_ -1))
+	    //    // 3rd-order
+	    //    //-(J_-1 - 0.5*sqr(J_-1) + (1.0/3.0)*pow(J_-1,3))
+	    //    // 4th-order
+	    //    //-(J_-1 - 0.5*sqr(J_-1) + (1.0/3.0)*pow(J_-1,3) - 0.25*pow(J_-1,4))
+	    //    //- log(J_)
+	    //    //-0.5*unitsPressureScale*(pow(J_, 2.0) - 1.0)/(J_)
+	    //    );
+
+	  else
+	    {
+	      //p.correctBoundaryConditions();
+
+	      pressureResidual =
+              (
+	      //lambdaf
+	       //- p/lambda +
 	       - p/kappa +
 	       fvc::laplacian(omega/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)")
 	       //              - fvc::div(((omega/sqr(mesh.deltaCoeffs())))*mesh.Sf() & fvc::interpolate(fvc::grad(p)))
 	       // Different stabilisation term(s) here
 	       //- tr(gradD())
-	       -0.5*unitsPressureScale*(pow(J_, 2.0) - 1.0)/(J_)
-	       );
+	       //+ 1 - (1 + tr(gradD()))
+	       //-(J_ -1)
+	       //-(J_ - 1 - 0.5*sqr(J_ -1))
+	       //- tr(gradD()) - 0.5*(sqr(tr(gradD())) - tr( gradD() & gradD() ) )
+	       -0.5*(pow(J_, 2.0) - 1.0)/(J_)
+	       //- log(J_)
+		 );
+	    }
 	}
+	else if (stabilisationType == "Mixed")
+	  {
+	    pressureResidual =
+	      (
+	       -p/kappa +
+	       0.5*(fvc::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
+             - fvc::div
+             (
+              (pDiffusivity()/kappaf)*mesh.Sf()
+              //(pDiffusivity()/kappaf)*SfCurrent
+               & fvc::interpolate(fvc::grad(p))
+             )
+		    ) + 0.5*(fvc::laplacian(omega/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)"))
+	       -0.5*(pow(J_, 2.0) -1.0)/(J_)
+              );
+	  }
 	else
         {
             FatalError
                 << "stabilisationType unknown: " << stabilisationType
                 << exit(FatalError);
         }
+	//Info << "impkf value: " << impKf_ << endl;
 
         // scalarField pressureResidual
         // (
@@ -1015,8 +1403,8 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 
         // Make residual extensive
         pressureResidual *= mesh.V();
-	scalar matrixScale = solidModelDict().lookupOrDefault<scalar>("matrixScale", 1.0);
-	pressureResidual *= matrixScale;
+	//scalar matrixScale = solidModelDict().lookupOrDefault<scalar>("matrixScale", 1.0);
+	//pressureResidual *= matrixScale;
 
 	//adding a switch to look at scale of residuals
 	Switch printResiduals =
@@ -1026,14 +1414,44 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 	Info << "Pressure Residual:\n" << average(mag(pressureResidual)) << endl;
 	// Copy the pressureResidual into the f field as the final equation
 	}
-	
+
 
         // Copy the pressureResidual into the f field as the final equation
         foamPetscSnesHelper::InsertFieldComponents<scalar>
         (
             pressureResidual, f, blockSize_ - 1
-        );
+	 );
     }
+
+    // if (solvePressure())
+    //   {
+    // 	const volVectorField& Dfield = this->D();
+    // 	const volScalarField& pfield = this->p();
+
+    // 	// Explicitly dereference the tmp<> returned by mag()
+    // 	const volScalarField& magD = mag(Dfield)();  // note the extra ()
+    // 	const volScalarField& magP = mag(pfield)();  // same here
+
+    // 	// Compute global maxima
+    // 	scalar Dmax = gMax(magD.internalField());
+    // 	scalar pmax = gMax(magP.internalField());
+
+    // 	if (Dmax > SMALL)
+    // 	  {
+    // 	    Info<< "p:D ratio = " << pmax / Dmax
+    // 		<< " (pmax = " << pmax
+    // 		<< ", Dmax = " << Dmax << ")" << endl;
+    // 	  }
+
+    // 	else
+    // 	  {
+    // 	    Info<< "Warning: Dmax ~ 0, cannot compute p:D ratio" << endl;
+    // 	  }
+    //   }
+
+    //Info << "printing itercount" << iterCount << endl;
+    //iterCount++;
+
 
     return 0;
 }
@@ -1045,9 +1463,9 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
     const Vec x
 )
 {
-  
+
     //This gives freedom to switch between pa and mpa ect by setting the scaling in the dict
-    scalar unitsPressureScale = solidModelDict().lookupOrDefault<scalar>("unitsPressureScale", 1.0);
+    //scalar unitsPressureScale = solidModelDict().lookupOrDefault<scalar>("unitsPressureScale", 1.0);
 
     //note we only wish to build the preconditioner once.
     if(preconditionerBuilt_)
@@ -1113,12 +1531,24 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
         const volScalarField kappa("kappa", mechanical().bulkModulus());
         //const volScalarField rKappa(1.0/mechanical().bulkModulus());
         const volScalarField rKappa(1.0/kappa);
+	//Info << "printing rKappa" << rKappa <<endl;
         const surfaceScalarField kappaf(fvc::interpolate(kappa));
         const dimensionedScalar omega(solidModelDict().lookup("omega"));
-	scalar matrixScale = solidModelDict().lookupOrDefault<scalar>("matrixScale", 1.0);
+	//scalar matrixScale = solidModelDict().lookupOrDefault<scalar>("matrixScale", 1.0);
         const word stabilisationType =
           solidModelDict().lookupOrDefault<word>("stabilisationType", "rhieChow");
         const dimensionedScalar omegaTau("omegaTau", solidModelDict());
+
+	// LAMBDA CASE DID NOT WORK CAN PROBABLY DELETE THIS STUFF WHEN CLEANING UP.
+	// tmp<volScalarField> lambdaField = mechanical().bulkModulus() - (2.0/3.0)*mechanical().shearModulus();
+	// const volScalarField& lambda = lambdaField(); // extract the underlying volScalarField
+
+	// const volScalarField rLambda(1.0/kappa);
+	// // Step 2: interpolate → tmp<surfaceScalarField>
+	// tmp<surfaceScalarField> lambdafTmp = fvc::interpolate(lambda);
+
+	// // Step 3: extract the underlying surfaceScalarField
+	// const surfaceScalarField& lambdaf = lambdafTmp();
         {
 	  // Calculate pressure equation matrix
 	  //const dimensionedScalar one("one", dimless, 1);
@@ -1126,7 +1556,7 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 	    {
 	      fvScalarMatrix approxPressureJ
 		(
-		 - fvm::Sp(rKappa, p)
+		  - fvm::Sp(rKappa, p)
 		 //- fvm::Sp(rKappa , p)//*matrixScale
 		 + fvm::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
 		 //+ fvm::laplacian(
@@ -1137,7 +1567,7 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 
 
 		 );
-	      approxPressureJ *= matrixScale;
+	      //approxPressureJ *= matrixScale;
 
 	      // Insert the pressure equation
 	      foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>
@@ -1145,24 +1575,76 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 		 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
 		 );
 	    }
+	  else if (stabilisationType =="Mixed")
+	    {
+	      surfaceScalarField Dp(omega/(impKf_*sqr(mesh().deltaCoeffs())));
+              fvScalarMatrix approxPressureJ
+		(
+		  - fvm::Sp(rKappa, p)
+		 //- fvm::Sp(rKappa , p)//*matrixScale
+		 + 0.5*fvm::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
+		 +0.5*fvm::laplacian(Dp, p, "jacobian-laplacian(rAU,p)")
+
+
+		 );
+	      foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>
+		(
+		 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
+		 );
+	    }
+	  else if (stabilisationType =="HigherOrder")
+	    {
+	      surfaceScalarField Dp(omegaTau/(impKf_*sqr(mesh().deltaCoeffs())));
+              fvScalarMatrix approxPressureJ
+		(
+		  - fvm::Sp(rKappa, p)
+		 //- fvm::Sp(rKappa , p)//*matrixScale
+		 //+ 0.5*fvm::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
+		  + fvm::laplacian(Dp, p, "jacobian-laplacian(rAU,p)")
+
+		  
+		 );
+	      foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>
+		(
+		 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
+		 );
+	    }
+	  
 	  else if(stabilisationType == "oosterlee")
 	    {
+	      const word pressureConfig = solidModelDict().lookupOrDefault<word>("pressureConfig", "reference");
+
+	      // Calculate Dp based on configuration
+	      //surfaceScalarField Dp = omega/(impKf_*sqr(mesh().deltaCoeffs()));
+
+	      surfaceScalarField Dp(omega/(impKf_*sqr(mesh().deltaCoeffs())));
+	      if (pressureConfig == "deformed")
+		{
+		  // Use the SAME Nanson-based approach as the residual
+		  const surfaceTensorField FinvTf(fvc::interpolate(Finv_.T()));
+		  const surfaceScalarField Jf(fvc::interpolate(J_));
+		  const surfaceScalarField magSfCurrent(mag(Jf * (FinvTf & mesh().Sf())));  // mesh().Sf()
+
+		  // Compute length scale ratio using same formula as residual
+		  const surfaceScalarField lengthScaleRatio(
+							    pow(magSfCurrent/mesh().magSf(), 1.0/(mesh().nGeometricD()-1))  // mesh().magSf()
+							    );
+
+		  const surfaceScalarField deltaCurrent(lengthScaleRatio / mesh().deltaCoeffs());  // mesh().deltaCoeffs()
+
+		  // Update Dp with deformed geometry
+		  Dp = omega/(impKf_ * sqr(1.0/deltaCurrent));
+		}
+
 	      fvScalarMatrix approxPressureJ
 		(
 		 - fvm::Sp(rKappa, p)
-		 //- fvm::Sp(rKappa , p)//*matrixScale
-		 // + fvm::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
-		 + fvm::laplacian(
-				  omega/(impKf_*sqr(mesh().deltaCoeffs())),
-				  p,
-				  "jacobian-laplacian(rAU,p)"
-				  )//*matrixScale
-
+		 + fvm::laplacian(Dp, p, "jacobian-laplacian(rAU,p)")
 		 );
 	      //surfaceScalarField omegaCoeff = fvc::interpolate(omega / mesh().deltaCoeffs());
 
 	      // Insert the pressure equation
-	      approxPressureJ *= matrixScale;
+	      //approxPressureJ *= matrixScale;
 	      foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>
 		(
 		 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
@@ -1175,7 +1657,7 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 		<< exit(FatalError);
 	    }
 
-	    
+
             // fvScalarMatrix approxPressureJ
             // (
             //   - fvm::Sp(rKappa, p)
@@ -1194,7 +1676,40 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
             // );
         }
 
+
+
+	//volScalarField& J = const_cast<volScalarField&>(this->J()); // or wherever your J is
+
+	//f(J) = 0.5*(J^2 - 1)/J
+	//df/dJ = (J^2 + 1)/(2*J^2)
+	//Chain rule weight = df/dJ * J
+
+	// volScalarField weight
+	//   (
+	//    IOobject("volumetricWeight", mesh().time().timeName(), mesh()),
+	//    (sqr(J_) + scalar(1.0)) / (scalar(2.0) * J_)
+	//    );
+
+
+
+
+	// foamPetscSnesHelper::InsertFvmDivUIntoPETScMatrix
+	//   (
+	//    p,
+	//    D,
+	//    jac,
+	//    blockSize_ - 1,          // row offset for pressure
+	//    0,                       // column offset for displacement
+	//    solidModel::twoD() ? 2 : 3,
+	//    false,                   // flipSign (keep same as before)
+	//    1.0,
+	//    &weight                 // pass pointer to weight // scaleFactor
+	//    );
+
+
+
         // Insert D-in-p equation coeffs coming from tr(grad(D)) == div(D)
+	// the below is the block of the jacobian corresponding to Jpu
         foamPetscSnesHelper::InsertFvmDivUIntoPETScMatrix
         (
             p,
@@ -1202,9 +1717,65 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
             jac,
             blockSize_ - 1,            // row offset
             0,                         // column offset
-            solidModel::twoD() ? 2 : 3, // number of scalar components of D
-            matrixScale*unitsPressureScale //adding a scaling option
+            solidModel::twoD() ? 2 : 3//, // number of scalar components of D
+            //matrixScale*unitsPressureScale //adding a scaling option
         );
+	// {
+	//   // Build the correction term for dRp/dD (∂R_p/∂D)
+	//   // This represents −(1 + 1/sqr(J_)) * Finv_T · grad(ΔD)
+	//   // Equivalent to a Laplacian-like correction weighted by deformation
+
+	//   //volTensorField gradDivCorr = (1.0 + 1.0/sqr(J_)) * (Finv_.T());
+	//   volTensorField gradDivCorr = ((1.0 + 1.0/sqr(J_)) * (Finv_.T())).ref();
+
+	//   fvVectorMatrix dRp_dDcorr(
+	// 			    fvm::laplacian(gradDivCorr, D, "dRp_dDcorr")
+
+	// 			    );
+	//   label nDim = solidModel::twoD() ? 2 : 3;
+	//   for (label cellI = 0; cellI < D.internalField().size(); ++cellI)
+	//     {
+	//       scalar Jinv2 = 1.0 + 1.0/sqr(J_[cellI]); // (1 + 1/J^2) factor
+	//       for (label i = 0; i < nDim; ++i)
+	// 	{
+	// 	  // Compute the nonlinear coefficient for this cell
+	// 	  scalar coeff = -Jinv2 * Finv_.T()[cellI][i][i]; // diagonal approximation
+
+	// 	  // Insert into PETSc Jacobian at block (pressure row, displacement column)
+	// 	  foamPetscSnesHelper::AddScalarToPETScBlock(
+	// 						     jac,
+	// 						     cellI,              // row = pressure cell index
+	// 						     i,                  // column = displacement component
+	// 						     blockSize_-1,        // row block offset (pressure)
+	// 						     coeff
+	// 						     );
+	// 	}
+	//     }
+
+	  // for (label i = 0; i < nDim; ++i)
+	  //   {
+	  //     // Extract the i-th component of the tensor as a scalar coefficient
+	  //     volScalarField diffusivity = gradDivCorr.component(i).ref();
+
+	  //     // Extract i-th component of D as a scalar field
+	  //     volScalarField D_i = D.component(i)();
+
+	  //     // Construct scalar fvMatrix
+	  //     fvMatrix<scalar> dRp_dDcorr_i(
+	  // 				    fvm::laplacian(diffusivity, D_i, "dRp_dDcorr_" + Foam::name(i))
+	  // 				    );
+
+	  //     // Insert into PETSc
+	  //     foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>(
+	  // 								 dRp_dDcorr_i, jac, blockSize_-1, i, 1
+	  // 								 );
+	  //   }
+
+	  // Insert this into the same ∂Rp/∂D block (row = pressure, column = displacement)
+	  //	  foamPetscSnesHelper::InsertFvMatrixIntoPETScMatrix<scalar>(
+	  //							     dRp_dDcorr, jac, blockSize_-1, 0, 1
+	  //							     );
+	//      }
 
         // Insert p-in-D term
         // Insert "-grad(p)" (equivalent to "-div(p*I)") into the D equation
@@ -1214,11 +1785,11 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
             jac,
             0,                         // row offset
             blockSize_ - 1,            // column offset
-            solidModel::twoD() ? 2 : 3, // number of scalar equations to insert
-	    unitsPressureScale
+            solidModel::twoD() ? 2 : 3//, // number of scalar equations to insert
+	    //unitsPressureScale
         );
     }
-    preconditionerBuilt_ = true;
+    preconditionerBuilt_ = false;
 
     return 0;
 }
