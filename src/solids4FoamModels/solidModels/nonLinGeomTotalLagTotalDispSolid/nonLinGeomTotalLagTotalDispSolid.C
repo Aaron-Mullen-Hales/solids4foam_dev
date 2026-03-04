@@ -1150,24 +1150,6 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
         const word stabilisationType =
           solidModelDict().lookupOrDefault<word>("stabilisationType", "rhieChow");
 
-	// const tmp<volScalarField> lambdaField = mechanical().bulkModulus() - (2.0/3.0)*mechanical().shearModulus();
-	// const volScalarField& lambda = lambdaField(); // underlying volScalarField reference
-	// const surfaceScalarField lambdaf = fvc::interpolate(lambda);
-	// Step 1: create the lambda volScalarField
-	//tmp<volScalarField> lambdaField = mechanical().bulkModulus() - (2.0/3.0)*mechanical().shearModulus();
-	//const volScalarField& lambda = lambdaField(); // extract the underlying volScalarField
-
-	// Step 2: interpolate → tmp<surfaceScalarField>
-	//tmp<surfaceScalarField> lambdafTmp = fvc::interpolate(lambda);
-
-	// Step 3: extract the underlying surfaceScalarField
-	//const surfaceScalarField& lambdaf = lambdafTmp();
-
-	// Info<< "max(tr(gradD)) " << max(tr(gradD())) << nl
-	//     << "min(tr(gradD)) " << min(tr(gradD())) << nl
-	//     << "max(J) " << max(0.5*(sqr(J_) -1)/J_) << nl
-	//     << "min(J) " << min(0.5*(sqr(J_) -1)/J_) << endl;
-
 	scalarField pressureResidual(mesh.nCells(), 0.0);
 	if (stabilisationType == "rhieChow")
 	  {
@@ -1194,36 +1176,6 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 	}
 	else if (stabilisationType == "HigherOrder")
 	  {
-	    //const volScalarField h2("h2", 1.0/sqr(mesh.deltaCoeffs()));  // L^2
-
-	    const surfaceScalarField h2
-	      (
-	       "h2",
-	       1.0/sqr(mesh.deltaCoeffs())   // L^2 on faces
-	       );
-	    // const volScalarField h2c
-	    //   (
-	    //    "h2c",
-	    //    fvc::interpolate(h2)  // face -> cell (or see Fix 2)
-	    //    );
-	    const volScalarField L1("L1", fvc::laplacian(p));            // p/L^2
-	    const volScalarField L2("L2", fvc::laplacian(L1));           // p/L^4
-	    const volScalarField L3("L3", fvc::laplacian(L2));           // p/L^6
-
-	    // dimensionless stabilisation term:
-	    //const volScalarField stabDimless("stabDimless", pow(h2,3) * (L3/kappa));  // (L^6)*(p/L^6)/kappa = p/kappa = dimensionless
-
-	    // Create the diffusivity field properly
-	    const volScalarField stab
-	      (
-	       fvc::laplacian
-	       (
-		fvc::laplacian
-		(
-		 fvc::laplacian(1.0/(impKf_*sqr(mesh.deltaCoeffs())), p)
-		 )
-		)
-	       );
 	    surfaceScalarField beta
 	      (
 	       "beta",
@@ -1244,6 +1196,9 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 	    //Info<< "dims(stab)    = " << sixthOrderStabilisation.dimensions() << nl;
 	    //Info<< "dims(p)    = " << p.dimensions() << nl;
 	    //Info<< "dims(kappa)    = " << kappa.dimensions() << nl;
+	    //Info<< "max|stab|    = " << gMax(sixthOrderStabilisation) << nl;
+	    //Info<< "max|p| = " << gMax(p) << nl;
+	    //Info<< "max|kappa| = " << gMax(kappa) << nl;
 
 
 	    //const volScalarField Dp(pDiffusivity()/impK_);
@@ -1598,8 +1553,6 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
               fvScalarMatrix approxPressureJ
 		(
 		  - fvm::Sp(rKappa, p)
-		 //- fvm::Sp(rKappa , p)//*matrixScale
-		 //+ 0.5*fvm::laplacian(pDiffusivity()/kappaf, p, "laplacian(Dp,p)")
 		  + fvm::laplacian(Dp, p, "jacobian-laplacian(rAU,p)")
 
 		  
