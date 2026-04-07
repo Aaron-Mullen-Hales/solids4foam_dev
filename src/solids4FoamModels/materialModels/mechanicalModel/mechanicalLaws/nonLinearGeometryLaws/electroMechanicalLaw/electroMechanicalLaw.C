@@ -148,20 +148,11 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     // 	   );
     //   }
     // Lookup the fibre directions
-    // How best should we do this to avoid duplicating the fibre field?
-    // For now, let's hard-code in the field name
-    const volSymmTensorField f0f0 =
-        mesh().lookupObject<volSymmTensorField>("f0f0");
+    const volVectorField& f0 = mesh().lookupObject<volVectorField>("f0");
 
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const volTensorField& F = this->F();
-    //const volTensorField& Ft = F.T();
-    const volTensorField FT(F.T());
-
-    // Calculate the Jacobian of the deformation gradient
-    const volScalarField J(det(F));
-
     // For now, we will assume a constant active stress
     // The next step will be to include an active-stress model to convert
     // muscle activation to fibre tension
@@ -173,11 +164,18 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
         currentTa = (mesh().time().value()/rampTime_)*Ta_;
     }
 
-    // Add active stress to the passive stress
-    // Note that the active stress is converted from a 2nd Piola-Kirchhoff
-    // stress to a Cauchy stress
-    // sigma += J*symm(F & (currentTa*f0f0) & F.T());
-    activeSigma_ = symm(F & (currentTa*f0f0) & FT)/J;
+    // Build the active Cauchy stress from the current unit fibre direction.
+    const volVectorField currentFibre(F & f0);
+    const volScalarField currentFibreMag
+    (
+        max
+        (
+            mag(currentFibre),
+            dimensionedScalar("small", dimless, SMALL)
+        )
+    );
+    const volVectorField currentUnitFibre(currentFibre/currentFibreMag);
+    activeSigma_ = currentTa*sqr(currentUnitFibre);
 
     if (mesh().foundObject<volScalarField>("p"))
     {
@@ -194,20 +192,14 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     passiveMechLawPtr_->correct(sigma);
 
     // Lookup the fibre directions
-    // How best should we do this to avoid duplicating the fibre field?
-    // For now, let's hard-code in the field name
-    const surfaceSymmTensorField f0f0 =
-        mesh().lookupObject<surfaceSymmTensorField>("f0f0f");
+    const surfaceVectorField f0f
+    (
+        fvc::interpolate(mesh().lookupObject<volVectorField>("f0"))
+    );
 
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const surfaceTensorField& F = this->Ff();
-    //const surfaceTensorField& Ft = F.T() ;
-    const surfaceTensorField FT(F.T());
-
-    // Calculate the Jacobian of the deformation gradient
-    const surfaceScalarField J(det(F));
-
     // For now, we will assume a constant active stress
     // The next step will be to include an active-stress model to convert
     // muscle activation to fibre tension
@@ -219,11 +211,18 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
         currentTa = (mesh().time().value()/rampTime_)*Ta_;
     }
 
-    // Add active stress to the passive stress
-    // Note that the active stress is converted from a 2nd Piola-Kirchhoff
-    // stress to a Cauchy stress
-    //sigma += (1.0/J)*symm(F & (currentTa*f0f0) & Ft);
-    sigma += (1.0/J)*symm(F & (currentTa*f0f0) & FT);
+    // Build the active Cauchy stress from the current unit fibre direction.
+    const surfaceVectorField currentFibre(F & f0f);
+    const surfaceScalarField currentFibreMag
+    (
+        max
+        (
+            mag(currentFibre),
+            dimensionedScalar("small", dimless, SMALL)
+        )
+    );
+    const surfaceVectorField currentUnitFibre(currentFibre/currentFibreMag);
+    sigma += currentTa*sqr(currentUnitFibre);
 }
 
 
