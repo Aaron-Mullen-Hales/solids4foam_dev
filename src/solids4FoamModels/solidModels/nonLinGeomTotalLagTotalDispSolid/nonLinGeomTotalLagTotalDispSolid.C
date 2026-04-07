@@ -70,6 +70,7 @@ void nonLinGeomTotalLagTotalDispSolid::predict()
     // Inverse of the deformation gradient
     Finv_ = inv(F_);
 
+    
     // Jacobian of the deformation gradient
     J_ = det(F_);
 
@@ -433,7 +434,7 @@ bool nonLinGeomTotalLagTotalDispSolid::evolveSnes()
         p().correctBoundaryConditions();
 
         // Update dpdt
-        //autoPtrRef(dpdtPtr_) = fvc::ddt(p());
+        autoPtrRef(dpdtPtr_) = fvc::ddt(p());
     }
 
     // Update gradient of displacement
@@ -1206,7 +1207,14 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 	    (
 	     - p/kappa
 	     //+ omega*fvc::laplacian(omega*fvc::laplacian(omega*fvc::laplacian(omega*1.0/(impKf_*sqr(mesh.deltaCoeffs())), p, "laplacian(Dp,p)")))
-	     + sixthOrderStabilisation
+	     +fvc::laplacian
+	       (
+		fvc::laplacian
+		(
+		 fvc::laplacian(beta, p)   // beta is face-based: OK here
+		 )
+		)
+	     //sixthOrderStabilisation
 	  //-0.5*kappa*(pow(J_, 2.0) - 1.0)/(J_) //*(1e-6))
 	     //- tr(gradD())
 
@@ -1549,7 +1557,7 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 	    }
 	  else if (stabilisationType =="HigherOrder")
 	    {
-	      surfaceScalarField Dp(omegaTau/(impKf_*sqr(mesh().deltaCoeffs())));
+	      surfaceScalarField Dp((omegaTau/(impKf_*sqr(mesh().deltaCoeffs()))));
               fvScalarMatrix approxPressureJ
 		(
 		  - fvm::Sp(rKappa, p)
@@ -1562,7 +1570,6 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
 		 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
 		 );
 	    }
-	  
 	  else if(stabilisationType == "oosterlee")
 	    {
 	      const word pressureConfig = solidModelDict().lookupOrDefault<word>("pressureConfig", "reference");

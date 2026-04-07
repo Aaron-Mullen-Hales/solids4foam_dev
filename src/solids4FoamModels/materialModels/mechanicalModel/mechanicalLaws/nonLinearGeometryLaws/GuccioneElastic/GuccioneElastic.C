@@ -68,7 +68,7 @@ Foam::tmp<Foam::volVectorField> Foam::GuccioneElastic::makeF0
             IOobject
             (
                 "f0",
-                mesh.time().timeName(),
+                "0",
                 mesh,
                 IOobject::MUST_READ,
                 IOobject::NO_WRITE
@@ -115,7 +115,7 @@ Foam::tmp<Foam::surfaceVectorField> Foam::GuccioneElastic::makeF0f
                 "f0f",
                 mesh.time().timeName(),
                 mesh,
-                IOobject::MUST_READ,
+                IOobject::NO_READ,
                 IOobject::NO_WRITE
             ),
             mesh
@@ -275,13 +275,14 @@ Foam::GuccioneElastic::GuccioneElastic
     ct_(readScalar(dict.lookup("ct"))),
     cfs_(readScalar(dict.lookup("cfs"))),
     // Check: is this mu equivalent to the linearised shear modulus?
-    mu_(0.75*(cf_ - 2.0*cfs_ + 2.0*cfs_)*k_),
+    mu_(0.5*k_*(cf_ +cfs_ + ct_)/3),
     uniformFibreField_
     (
         dict.lookupOrDefault<Switch>("uniformFibreField", false)
     ),
     f0_(makeF0(uniformFibreField_, mesh, dict)),
-    f0f_(makeF0f(uniformFibreField_, mesh, dict)),
+    //f0f_(makeF0f(uniformFibreField_, mesh, dict)),
+
     s0_
     (
         IOobject
@@ -361,7 +362,7 @@ Foam::GuccioneElastic::GuccioneElastic
         dimensionedTensor("0", dimless, tensor::zero)
     ),
     f0f0_("f0f0", sqr(f0_)),
-    f0f0f_("f0f0f", sqr(f0f_)),
+    //f0f0f_("f0f0f", sqr(f0f_)),
     S_
     (
         IOobject
@@ -402,24 +403,24 @@ Foam::GuccioneElastic::GuccioneElastic
             << abort(FatalError);
     }
 
-#ifdef OPENFOAM_NOT_EXTEND
-    if (min(mag(mag(f0f_.primitiveField()))) < SMALL)
-#else
-    if (min(mag(mag(f0f_.internalField()))) < SMALL)
-#endif
-    {
-        FatalErrorIn("GuccioneElastic::GuccioneElastic()")
-            << "At least one f0f vector has a length of zero!"
-            << abort(FatalError);
-    }
+    //#ifdef OPENFOAM_NOT_EXTEND
+    //if (min(mag(mag(f0f_.primitiveField()))) < SMALL)
+    //#else
+    //if (min(mag(mag(f0f_.internalField()))) < SMALL)
+    //#endif
+    //{
+      //   FatalErrorIn("GuccioneElastic::GuccioneElastic()")
+      //     << "At least one f0f vector has a length of zero!"
+    //    << abort(FatalError);
+    //}
 
     // Normalise f0
     f0_ /= mag(f0_);
-    f0f_ /= mag(f0f_);
+    //f0f_ /= mag(f0f_);
 
     // Re-calculate f0f0
     f0f0_ = sqr(f0_);
-    f0f0f_ = sqr(f0f_);
+    //f0f0f_ = sqr(f0f_);
 
     // Store old F
     F().storeOldTime();
@@ -430,7 +431,7 @@ Foam::GuccioneElastic::GuccioneElastic
     // and remove any component in the f0 direction
     // Remove component in f0 direction
     s0_ = ((I - f0f0_) & s0_);
-    s0f_ = ((I - f0f0f_) & s0f_);
+    //s0f_ = ((I - f0f0f_) & s0f_);
 
     // Check for any vectors with zero magnitude; if found, then use the j
     // direction
@@ -440,42 +441,42 @@ Foam::GuccioneElastic::GuccioneElastic
         s0_ =
             posMagS0*s0_ + (1.0 - posMagS0)*((I - f0f0_) & vector(0, 1, 0));
     }
-    {
-        const surfaceScalarField magS0(mag(s0f_));
-        const surfaceScalarField posMagS0(pos(magS0));
-        s0f_ =
-            posMagS0*s0f_ + (1.0 - posMagS0)*((I - f0f0f_) & vector(0, 1, 0));
-    }
+    //{
+    //    const surfaceScalarField magS0(mag(s0f_));
+    //    const surfaceScalarField posMagS0(pos(magS0));
+    //    s0f_ =
+    //        posMagS0*s0f_ + (1.0 - posMagS0)*((I - f0f0f_) & vector(0, 1, 0));
+    // }
 
     // Make s0 unit vectors
     s0_ /= mag(s0_);
-    s0f_ /= mag(s0f_);
+    //s0f_ /= mag(s0f_);
 
     // Calculate n0 as orthogonal to f0 and s0
     n0_ = f0_ ^ s0_;
     n0_ /= mag(n0_);
-    n0f_ = f0f_ ^ s0f_;
-    n0f_ /= mag(n0f_);
+    //n0f_ = f0f_ ^ s0f_;
+    //n0f_ /= mag(n0f_);
 
     // Assign the components of R
     R_.replace(tensor::XX, f0_.component(vector::X));
     R_.replace(tensor::YX, f0_.component(vector::Y));
     R_.replace(tensor::ZX, f0_.component(vector::Z));
-    R_.replace(tensor::YY, s0_.component(vector::X));
+    R_.replace(tensor::XY, s0_.component(vector::X));
     R_.replace(tensor::YY, s0_.component(vector::Y));
     R_.replace(tensor::ZY, s0_.component(vector::Z));
-    R_.replace(tensor::YZ, n0_.component(vector::X));
+    R_.replace(tensor::XZ, n0_.component(vector::X));
     R_.replace(tensor::YZ, n0_.component(vector::Y));
     R_.replace(tensor::ZZ, n0_.component(vector::Z));
-    Rf_.replace(tensor::XX, f0f_.component(vector::X));
-    Rf_.replace(tensor::YX, f0f_.component(vector::Y));
-    Rf_.replace(tensor::ZX, f0f_.component(vector::Z));
-    Rf_.replace(tensor::YY, s0f_.component(vector::X));
-    Rf_.replace(tensor::YY, s0f_.component(vector::Y));
-    Rf_.replace(tensor::ZY, s0f_.component(vector::Z));
-    Rf_.replace(tensor::YZ, n0f_.component(vector::X));
-    Rf_.replace(tensor::YZ, n0f_.component(vector::Y));
-    Rf_.replace(tensor::ZZ, n0f_.component(vector::Z));
+    //Rf_.replace(tensor::XX, f0f_.component(vector::X));
+    //Rf_.replace(tensor::YX, f0f_.component(vector::Y));
+    //Rf_.replace(tensor::ZX, f0f_.component(vector::Z));
+    //Rf_.replace(tensor::YY, s0f_.component(vector::X));
+    //Rf_.replace(tensor::YY, s0f_.component(vector::Y));
+    //Rf_.replace(tensor::ZY, s0f_.component(vector::Z));
+    //Rf_.replace(tensor::YZ, n0f_.component(vector::X));
+    //Rf_.replace(tensor::YZ, n0f_.component(vector::Y));
+    //Rf_.replace(tensor::ZZ, n0f_.component(vector::Z));
 
     if (dict.lookupOrDefault<Switch>("writeS0N0R", Switch(false)))
     {
@@ -483,9 +484,9 @@ Foam::GuccioneElastic::GuccioneElastic
         s0_.write();
         n0_.write();
         R_.write();
-        s0f_.write();
-        n0f_.write();
-        Rf_.write();
+        //s0f_.write();
+        //n0f_.write();
+        //Rf_.write();
     }
 }
 
@@ -513,7 +514,7 @@ Foam::tmp<Foam::volScalarField> Foam::GuccioneElastic::impK() const
                 IOobject::NO_WRITE
             ),
             mesh(),
-            (cf_ - 2.0*cfs_ + 2.0*cfs_)*k_ + bulkModulus_
+            (cf_  +ct_ + cfs_)*k_ / 3.0 //+ bulkModulus_
         )
     );
 }
@@ -705,12 +706,15 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const volTensorField& F = this->F();
+    tmp<volTensorField> tFT = F.T();
+    //const tensor FT(F.T());
+    const volTensorField FT = tFT();
 
     // Calculate the Jacobian of the deformation gradient
     const volScalarField J(det(F));
 
     // Calculate the right Cauchy–Green deformation tensor
-    const volSymmTensorField C(symm(F.T() & F));
+    const volSymmTensorField C(symm(FT & F));
 
     // Calculate the Green-Lagrange strain
     const volSymmTensorField E(0.5*(C - I));
@@ -727,7 +731,12 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
     if (useLocalCoordSys)
     {
         // Calculate the Green strain in the local coordinate system
-        const volSymmTensorField EStar("EStar", symm(R_.T() & E & R_));
+
+      //const volTensorField& F = this->F();
+        tmp<volTensorField> tRT = R_.T();
+        const volTensorField RT = tRT();
+
+        const volSymmTensorField EStar("EStar", symm(RT & E & R_));
 
         // Extract the components of EStar
         // Note: EStar is symmetric
@@ -775,19 +784,28 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
 
         // Rotate S from the local fibre coordinate system to the global
         // coordinate system
-        S_ = symm(R_ & S_ & R_.T());
+        S_ = symm(R_ & S_ & RT);
     }
     else
     {
+        //creating isochoric E and C:
+        //const volSymmTensorField Cbar(pow(J, -2.0/3.0)*symm(F.T() & F));
+        //const volSymmTensorField Ebar(0.5*(Cbar - I));
+	//const volSymmTensorField sqrEbar(symm(Ebar & Ebar));
         // Calculate E . E
         const volSymmTensorField sqrE(symm(E & E));
 
-        // Calculate the invariants of E
+        // // Calculate the invariants of E
         const volScalarField I1(tr(E));
         const volScalarField I2(0.5*(sqr(tr(E)) - tr(sqrE)));
         const volScalarField I4(E && f0f0_);
         const volScalarField I5(sqrE && f0f0_);
 
+	// trying to calculate invariant of Ebar and Cbar instead:
+	//const volScalarField I1(tr(Ebar));
+        //const volScalarField I2(0.5*(sqr(tr(Ebar)) - tr(sqrEbar)));
+        //const volScalarField I4(Ebar && f0f0_);
+        //const volScalarField I5(sqrEbar && f0f0_);
         // Calculate Q
         const volScalarField Q
         (
@@ -797,7 +815,7 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
          + 2.0*(cfs_ - ct_)*I5
         );
 
-        // Calculate the derivative of Q wrt to E
+        //Calculate the derivative of Q wrt to E
         const volSymmTensorField dQdE
         (
             2.0*ct_*E
@@ -805,25 +823,37 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
           + 2.0*(cfs_ - ct_)*symm((E & f0f0_) + (f0f0_ & E))
         );
 
+	//using Ebar instead
+	// const volSymmTensorField dQdE
+        // (
+        //     2.0*ct_*Ebar
+        //   + 2.0*(cf_ - 2.0*cfs_ + ct_)*I4*f0f0_
+        //   + 2.0*(cfs_ - ct_)*symm((Ebar & f0f0_) + (f0f0_ & Ebar))
+        // );
+
         // Update the 2nd Piola-Kirchhoff stress (without the hydrostatic term)
         S_ = dQdE*0.5*k_*exp(Q);
     }
 
-    // Convert the second Piola-Kirchhoff stress to the Cauchy stress and take
-    // the deviatoric component
-    // s = dev((1/J)*F & S & F.T)
-    const volSymmTensorField s(dev(symm(F & S_ & F.T()))/J);
+    const volSymmTensorField s(dev(symm(F & S_ & FT)));
 
-    // Calculate the hydrostatic stress
+    // In the mixed p-U formulation, the solid model replaces the isotropic
+    // part of sigma with the independently solved pressure field, so the
+    // constitutive law should return only its deviatoric response.
+    if (mesh().foundObject<volScalarField>("p"))
+    {
+        sigma = (1.0/J)*s;
+        return;
+    }
+
+    // Otherwise, use the standard volumetric penalty contribution.
     updateSigmaHyd
     (
-        0.5*bulkModulus_*(pow(J, 2.0) - 1.0)/J,
+        0.5*bulkModulus_*(pow(J, 2.0) - 1.0),
         (4.0/3.0)*mu_ + bulkModulus_
     );
 
-    // Convert the second Piola-Kirchhoff deviatoric stress to the Cauchy stress
-    // and add hydrostatic stress term
-    sigma = s + sigmaHyd()*I;
+    sigma = (1.0/J)*(sigmaHyd()*I + s);
 }
 
 

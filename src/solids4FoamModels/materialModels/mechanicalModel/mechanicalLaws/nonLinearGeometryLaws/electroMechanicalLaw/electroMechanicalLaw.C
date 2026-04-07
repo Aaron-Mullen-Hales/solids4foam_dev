@@ -57,7 +57,27 @@ Foam::electroMechanicalLaw::electroMechanicalLaw
         )
     ),
     Ta_(dict.lookup("activeTension")),
-    rampTime_(readScalar(dict.lookup("rampTime")))
+    rampTime_(readScalar(dict.lookup("rampTime"))),
+    //activeSigmaPtr_(nullptr)
+    
+    activeSigma_
+    (
+     IOobject
+     (
+      "activeSigma",
+      mesh.time().timeName(),
+      mesh,
+      IOobject::NO_READ,
+      IOobject::AUTO_WRITE
+      ),
+     mesh,
+     dimensionedSymmTensor
+     (
+      "zero",
+      dimPressure,
+      symmTensor::zero
+      )
+     )
 {
     if (rampTime_ < 0.0)
     {
@@ -103,6 +123,30 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     // Calculate passive stress
     passiveMechLawPtr_->correct(sigma);
 
+    // if (!activeSigmaPtr_.valid())
+    //   {
+    // 	activeSigmaPtr_.reset
+    // 	  (
+    // 	   new volSymmTensorField
+    // 	   (
+    //         IOobject
+    //         (
+    // 	     "activeSigma",
+    // 	     mesh().time().timeName(),
+    // 	     mesh(),
+    // 	     IOobject::NO_READ,
+    // 	     IOobject::AUTO_WRITE
+    // 	     ),
+    //         mesh(),
+    //         dimensionedSymmTensor
+    //         (
+    // 	     "zero",
+    // 	     dimPressure,
+    // 	     symmTensor::zero
+    // 	     )
+    // 	    )
+    // 	   );
+    //   }
     // Lookup the fibre directions
     // How best should we do this to avoid duplicating the fibre field?
     // For now, let's hard-code in the field name
@@ -112,6 +156,8 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const volTensorField& F = this->F();
+    //const volTensorField& Ft = F.T();
+    const volTensorField FT(F.T());
 
     // Calculate the Jacobian of the deformation gradient
     const volScalarField J(det(F));
@@ -131,7 +177,14 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
     // Note that the active stress is converted from a 2nd Piola-Kirchhoff
     // stress to a Cauchy stress
     // sigma += J*symm(F & (currentTa*f0f0) & F.T());
-    sigma += symm(F & (currentTa*f0f0) & F.T())/J;
+    activeSigma_ = symm(F & (currentTa*f0f0) & FT)/J;
+
+    if (mesh().foundObject<volScalarField>("p"))
+    {
+        activeSigma_ = dev(activeSigma_);
+    }
+
+    sigma += activeSigma_;
 }
 
 
@@ -149,6 +202,8 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     // Take a reference to the deformation gradient to make the code easier to
     // read
     const surfaceTensorField& F = this->Ff();
+    //const surfaceTensorField& Ft = F.T() ;
+    const surfaceTensorField FT(F.T());
 
     // Calculate the Jacobian of the deformation gradient
     const surfaceScalarField J(det(F));
@@ -167,7 +222,8 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     // Add active stress to the passive stress
     // Note that the active stress is converted from a 2nd Piola-Kirchhoff
     // stress to a Cauchy stress
-    sigma += J*symm(F & (currentTa*f0f0) & F.T());
+    //sigma += (1.0/J)*symm(F & (currentTa*f0f0) & Ft);
+    sigma += (1.0/J)*symm(F & (currentTa*f0f0) & FT);
 }
 
 
