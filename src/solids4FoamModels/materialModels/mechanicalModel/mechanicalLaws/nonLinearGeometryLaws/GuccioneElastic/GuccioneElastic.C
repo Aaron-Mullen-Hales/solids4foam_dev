@@ -788,24 +788,30 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
     }
     else
     {
-        //creating isochoric E and C:
-        //const volSymmTensorField Cbar(pow(J, -2.0/3.0)*symm(F.T() & F));
-        //const volSymmTensorField Ebar(0.5*(Cbar - I));
-	//const volSymmTensorField sqrEbar(symm(Ebar & Ebar));
-        // Calculate E . E
-        const volSymmTensorField sqrE(symm(E & E));
+        const bool mixedPressure = mesh().foundObject<volScalarField>("p");
 
-        // // Calculate the invariants of E
-        const volScalarField I1(tr(E));
-        const volScalarField I2(0.5*(sqr(tr(E)) - tr(sqrE)));
-        const volScalarField I4(E && f0f0_);
-        const volScalarField I5(sqrE && f0f0_);
+        // In the mixed p-U formulation, evaluate the passive constitutive
+        // response from an isochoric strain measure so that the independently
+        // solved pressure field carries the volumetric mode.
+        const volSymmTensorField strainTensor
+        (
+            mixedPressure
+          ? volSymmTensorField
+            (
+                0.5*(pow(J, -2.0/3.0)*symm(F.T() & F) - I)
+            )
+          : E
+        );
+        const volSymmTensorField sqrStrain(symm(strainTensor & strainTensor));
 
-	// trying to calculate invariant of Ebar and Cbar instead:
-	//const volScalarField I1(tr(Ebar));
-        //const volScalarField I2(0.5*(sqr(tr(Ebar)) - tr(sqrEbar)));
-        //const volScalarField I4(Ebar && f0f0_);
-        //const volScalarField I5(sqrEbar && f0f0_);
+        // Calculate the invariants of the selected strain measure
+        const volScalarField I1(tr(strainTensor));
+        const volScalarField I2
+        (
+            0.5*(sqr(tr(strainTensor)) - tr(sqrStrain))
+        );
+        const volScalarField I4(strainTensor && f0f0_);
+        const volScalarField I5(sqrStrain && f0f0_);
         // Calculate Q
         const volScalarField Q
         (
@@ -818,18 +824,13 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
         //Calculate the derivative of Q wrt to E
         const volSymmTensorField dQdE
         (
-            2.0*ct_*E
+            2.0*ct_*strainTensor
           + 2.0*(cf_ - 2.0*cfs_ + ct_)*I4*f0f0_
-          + 2.0*(cfs_ - ct_)*symm((E & f0f0_) + (f0f0_ & E))
+          + 2.0*(cfs_ - ct_)*symm
+            (
+                (strainTensor & f0f0_) + (f0f0_ & strainTensor)
+            )
         );
-
-	//using Ebar instead
-	// const volSymmTensorField dQdE
-        // (
-        //     2.0*ct_*Ebar
-        //   + 2.0*(cf_ - 2.0*cfs_ + ct_)*I4*f0f0_
-        //   + 2.0*(cfs_ - ct_)*symm((Ebar & f0f0_) + (f0f0_ & Ebar))
-        // );
 
         // Update the 2nd Piola-Kirchhoff stress (without the hydrostatic term)
         S_ = dQdE*0.5*k_*exp(Q);
