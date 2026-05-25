@@ -1723,9 +1723,33 @@ label foamPetscSnesHelper::InsertFvmGradPGaussIntoPETScMatrix
     const scalar scale
 ) const
 {
-    // Gauss-style discrete gradient of p, inserted as the J_Dp block.
-    // Interior face contribution to V*grad(p)|_own_i :
-    //   = Sf_i * (w * p[own] + (1-w) * p[nei])
+    return InsertFvmGradPGaussIntoPETScMatrix
+    (
+        p,
+        p.mesh().Sf(),
+        jac,
+        rowOffset,
+        colOffset,
+        nScalarEqns,
+        scale
+    );
+}
+
+
+label foamPetscSnesHelper::InsertFvmGradPGaussIntoPETScMatrix
+(
+    const volScalarField& p,
+    const surfaceVectorField& faceArea,
+    Mat jac,
+    const label rowOffset,
+    const label colOffset,
+    const label nScalarEqns,
+    const scalar scale
+) const
+{
+    // Gauss-style discrete -grad(p) contribution, inserted as the J_Dp block.
+    // Interior face contribution to -V*grad(p)|_own_i:
+    //   = -faceArea_i * (w*p[own] + (1-w)*p[nei])
     // The scalar matrix is built identically to InsertFvmDivUIntoPETScMatrix
     // (same upper/lower/negSumDiag coefficients per face). The difference
     // is the destination block position: this helper inserts at
@@ -1747,7 +1771,7 @@ label foamPetscSnesHelper::InsertFvmGradPGaussIntoPETScMatrix
 
         fvScalarMatrix gradPCoeffs(p, dimArea*dimPressure);
 
-        const vectorField& Sf = mesh.Sf();
+        const vectorField& Sf = faceArea;
         const surfaceScalarField& weights = mesh.weights();
         const scalarField& w = weights;
 
@@ -1766,7 +1790,7 @@ label foamPetscSnesHelper::InsertFvmGradPGaussIntoPETScMatrix
         {
             const fvPatchScalarField& pP = p.boundaryField()[patchI];
             const fvPatch& patch = pP.patch();
-            const vectorField& Sfp = patch.Sf();
+            const vectorField& Sfp = faceArea.boundaryField()[patchI];
             const fvsPatchScalarField& pw = weights.boundaryField()[patchI];
             const labelUList& fc = patch.faceCells();
 

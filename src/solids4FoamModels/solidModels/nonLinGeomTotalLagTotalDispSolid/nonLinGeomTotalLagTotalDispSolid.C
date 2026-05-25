@@ -1159,18 +1159,23 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
                 pressureEqnScale_           // scale (helper returns -V*div with +1)
             );
 
-            // Insert p-in-D term. InsertFvmGradIntoPETScMatrix uses the
-            // least-squares gradient convention where scale=-1 assembles
-            // `-V*grad(p)`. Apply the pressure-unknown scale so the column
-            // corresponds to the scaled unknown pHat = p/pressureUnknownScale_.
-            foamPetscSnesHelper::InsertFvmGradIntoPETScMatrix
+            const surfaceVectorField SfCurrent
+            (
+                fvc::interpolate(J_*Finv_.T()) & mesh().Sf()
+            );
+
+            // Insert p-in-D term matching the nonlinear residual pressure
+            // force -sum_f p_f*SfCurrent_f. Apply the pressure-unknown scale
+            // so the column corresponds to pHat = p/pressureUnknownScale_.
+            foamPetscSnesHelper::InsertFvmGradPGaussIntoPETScMatrix
             (
                 p,
+                SfCurrent,
                 jac,
                 0,                          // row offset
                 blockSize_ - 1,             // column offset
                 solidModel::twoD() ? 2 : 3, // number of D components
-                -pressureUnknownScale_      // scale for -V*grad(pHat)
+                pressureUnknownScale_       // scale for -sum_f pHat_f*SfCurrent_f
             );
         }
     }

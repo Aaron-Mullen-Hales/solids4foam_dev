@@ -461,17 +461,30 @@ public:
                 const scalar scale = 1.0
             ) const;
 
-            //- Insert the Gauss-style grad(p) into the vector D equation
-            //  of a PETSc matrix. The inserted matrix is
-            //  `scale * V * grad(p)`. Callers needing `-V*grad(p)`
-            //  should pass `scale = -1.0`. This is the structural
-            //  transpose of `InsertFvmDivUIntoPETScMatrix` (same per-face
-            //  coefficient pattern, inserted at block position
-            //  (rowOffset + cmptI, colOffset) instead of
-            //  (rowOffset, colOffset + cmptI)).
+            //- Insert the Gauss-style -grad(p) contribution into the
+            //  vector D equation of a PETSc matrix. The inserted matrix is
+            //  `scale * (-V * grad(p))`. This is the structural transpose
+            //  of `InsertFvmDivUIntoPETScMatrix` (same per-face coefficient
+            //  pattern, inserted at block position (rowOffset + cmptI,
+            //  colOffset) instead of (rowOffset, colOffset + cmptI)).
             label InsertFvmGradPGaussIntoPETScMatrix
             (
                 const volScalarField& p,
+                Mat jac,
+                const label rowOffset,
+                const label colOffset,
+                const label nScalarEqns,
+                const scalar scale = 1.0
+            ) const;
+
+            //- Variant using a caller-supplied face-area vector field, e.g.
+            //  the current-configuration area vector in nonlinear geometry
+            //  solid models. This inserts `scale` times the derivative of
+            //  `-sum_f p_f*faceArea_f` with respect to p.
+            label InsertFvmGradPGaussIntoPETScMatrix
+            (
+                const volScalarField& p,
+                const surfaceVectorField& faceArea,
                 Mat jac,
                 const label rowOffset,
                 const label colOffset,
