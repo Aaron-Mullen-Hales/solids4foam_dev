@@ -27,6 +27,14 @@ License
 #include "symmetryFvPatchFields.H"
 #include "slipFvPatchFields.H"
 #include "compatibilityFunctions.H"
+#include "processorFvPatch.H"
+#include "symmetryPolyPatch.H"
+#ifdef USE_PETSC
+    #include "petscErrorHandling.H"
+#endif
+#ifdef OPENFOAM_NOT_EXTEND
+    #include "symmetryPlanePolyPatch.H"
+#endif
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -46,6 +54,302 @@ addToRunTimeSelectionTable
 (
     solidModel, nonLinGeomTotalLagTotalDispSolid, dictionary
 );
+
+
+#ifdef USE_PETSC
+
+namespace
+{
+
+vector finiteStrainPressureDcoeff
+(
+    const tensor& Finv,
+    const scalar J,
+    const scalar pressureEqnScaleV,
+    const vector& ls
+)
+{
+    const scalar dRvolDjac =
+        -0.5*pressureEqnScaleV*J*(1.0 + 1.0/sqr(J));
+
+    return dRvolDjac*(Finv.T() & ls);
+}
+
+
+void clearPetscBlock(List<PetscScalar>& values)
+{
+    forAll(values, i)
+    {
+        values[i] = 0.0;
+    }
+}
+
+
+void addPressureDcoeff
+(
+    const foamPetscSnesHelper& petscHelper,
+    Mat jac,
+    List<PetscScalar>& values,
+    const label petscBlockSize,
+    const label nD,
+    const label rowOffset,
+    const label rowCellID,
+    const label globalBlockColI,
+    const vector& coeff
+)
+{
+    clearPetscBlock(values);
+
+    for (label cmptI = 0; cmptI < nD; ++cmptI)
+    {
+        values[rowOffset*petscBlockSize + cmptI] = coeff[cmptI];
+    }
+
+    const label globalBlockRowI =
+        petscHelper.globalCells().toGlobal(rowCellID);
+
+    AssertPETSc
+    (
+        MatSetValuesBlocked
+        (
+            jac, 1, &globalBlockRowI, 1, &globalBlockColI,
+            values.cdata(),
+            ADD_VALUES
+        )
+    );
+}
+
+
+label insertFiniteStrainPressureDJacobian
+(
+    const foamPetscSnesHelper& petscHelper,
+    const volVectorField& D,
+    const volTensorField& Finv,
+    const volScalarField& J,
+    const scalar pressureEqnScale,
+    Mat jac,
+    const label rowOffset,
+    const label nD
+)
+{
+    const fvMesh& mesh = D.mesh();
+
+    label petscBlockSize;
+    AssertPETSc(MatGetBlockSize(jac, &petscBlockSize));
+
+    List<PetscScalar> values(petscBlockSize*petscBlockSize, 0.0);
+
+    boolList useBoundaryFaceValues(mesh.boundary().size(), false);
+    const word lsName("leastSquaresVectors" + D.name());
+
+    const leastSquaresS4fVectors* lsvPtr = nullptr;
+    if (mesh.foundObject<leastSquaresS4fVectors>(lsName))
+    {
+        lsvPtr = &mesh.lookupObject<leastSquaresS4fVectors>(lsName);
+    }
+    else
+    {
+#ifdef OPENFOAM_COM
+        lsvPtr =
+            &leastSquaresS4fVectors::New
+            (
+                lsName, mesh, useBoundaryFaceValues
+            );
+#else
+        lsvPtr = &leastSquaresS4fVectors::New
+        (
+            mesh, useBoundaryFaceValues
+        );
+#endif
+    }
+
+    const leastSquaresS4fVectors& lsv = *lsvPtr;
+    const surfaceVectorField& ownLs = lsv.pVectors();
+    const surfaceVectorField& neiLs = lsv.nVectors();
+
+    const labelUList& own = mesh.owner();
+    const labelUList& nei = mesh.neighbour();
+    const scalarField& V = mesh.V();
+
+    forAll(own, faceI)
+    {
+        const label ownCellID = own[faceI];
+        const label neiCellID = nei[faceI];
+
+        const label globalOwnCellID =
+            petscHelper.globalCells().toGlobal(ownCellID);
+        const label globalNeiCellID =
+            petscHelper.globalCells().toGlobal(neiCellID);
+
+        const vector ownCoeff =
+            finiteStrainPressureDcoeff
+            (
+                Finv[ownCellID],
+                J[ownCellID],
+                pressureEqnScale*V[ownCellID],
+                ownLs[faceI]
+            );
+
+        const vector neiCoeff =
+            finiteStrainPressureDcoeff
+            (
+                Finv[neiCellID],
+                J[neiCellID],
+                pressureEqnScale*V[neiCellID],
+                neiLs[faceI]
+            );
+
+        addPressureDcoeff
+        (
+            petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+            ownCellID, globalOwnCellID, -ownCoeff
+        );
+        addPressureDcoeff
+        (
+            petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+            ownCellID, globalNeiCellID, ownCoeff
+        );
+        addPressureDcoeff
+        (
+            petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+            neiCellID, globalOwnCellID, neiCoeff
+        );
+        addPressureDcoeff
+        (
+            petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+            neiCellID, globalNeiCellID, -neiCoeff
+        );
+    }
+
+    PtrList<labelList> neiProcGlobalIDs(mesh.boundaryMesh().size());
+
+    forAll(mesh.boundary(), patchI)
+    {
+        const fvPatch& fp = mesh.boundary()[patchI];
+
+        if (fp.type() == "processor")
+        {
+            labelList globalFaceCells(fp.faceCells());
+            forAll(globalFaceCells, faceI)
+            {
+                globalFaceCells[faceI] =
+                    petscHelper.globalCells().toGlobal(globalFaceCells[faceI]);
+            }
+
+            const processorFvPatch& procPatch =
+                refCast<const processorFvPatch>(fp);
+            procPatch.send(Pstream::commsTypes::blocking, globalFaceCells);
+        }
+    }
+
+    forAll(mesh.boundary(), patchI)
+    {
+        const fvPatch& fp = mesh.boundary()[patchI];
+
+        if (fp.type() == "processor")
+        {
+            neiProcGlobalIDs.set(patchI, new labelList(fp.size()));
+
+            const processorFvPatch& procPatch =
+                refCast<const processorFvPatch>(fp);
+            procPatch.receive
+            (
+                Pstream::commsTypes::blocking,
+                neiProcGlobalIDs[patchI]
+            );
+        }
+    }
+
+    forAll(mesh.boundary(), patchI)
+    {
+        const fvPatch& fp = mesh.boundary()[patchI];
+        const fvsPatchVectorField& patchOwnLs =
+            ownLs.boundaryField()[patchI];
+        const labelUList& faceCells = fp.faceCells();
+
+        if (fp.type() == "processor")
+        {
+            const labelList& patchNeiGlobalIDs = neiProcGlobalIDs[patchI];
+
+            forAll(faceCells, patchFaceI)
+            {
+                const label cellID = faceCells[patchFaceI];
+                const label globalCellID =
+                    petscHelper.globalCells().toGlobal(cellID);
+
+                const vector coeff =
+                    finiteStrainPressureDcoeff
+                    (
+                        Finv[cellID],
+                        J[cellID],
+                        pressureEqnScale*V[cellID],
+                        patchOwnLs[patchFaceI]
+                    );
+
+                addPressureDcoeff
+                (
+                    petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+                    cellID, globalCellID, -coeff
+                );
+                addPressureDcoeff
+                (
+                    petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+                    cellID, patchNeiGlobalIDs[patchFaceI], coeff
+                );
+            }
+        }
+        else if (fp.coupled())
+        {
+            FatalErrorInFunction
+                << "Coupled boundary type " << fp.type()
+                << " not yet supported in the finite-strain pressure "
+                << "Jacobian for nonLinGeomTotalLagTotalDispSolid"
+                << abort(FatalError);
+        }
+        else if
+        (
+            isA<symmetryPolyPatch>(fp.patch())
+#ifdef OPENFOAM_NOT_EXTEND
+         || isA<symmetryPlanePolyPatch>(fp.patch())
+#endif
+        )
+        {
+            const vectorField nHat(fp.nf());
+
+            forAll(faceCells, patchFaceI)
+            {
+                const label cellID = faceCells[patchFaceI];
+                const label globalCellID =
+                    petscHelper.globalCells().toGlobal(cellID);
+
+                const tensor mirror = I - 2.0*sqr(nHat[patchFaceI]);
+                const tensor mirrorDelta = mirror - I;
+
+                const vector coeff =
+                    mirrorDelta.T()
+                  & finiteStrainPressureDcoeff
+                    (
+                        Finv[cellID],
+                        J[cellID],
+                        pressureEqnScale*V[cellID],
+                        patchOwnLs[patchFaceI]
+                    );
+
+                addPressureDcoeff
+                (
+                    petscHelper, jac, values, petscBlockSize, nD, rowOffset,
+                    cellID, globalCellID, coeff
+                );
+            }
+        }
+    }
+
+    return 0;
+}
+
+}
+
+#endif
 
 
 // * * * * * * * * * * *  Private Member Functions * * * * * * * * * * * * * //
@@ -1013,9 +1317,8 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
 
         // Calculate pressure equation residual. Keep the finite-strain
         // volumetric term -0.5*(J^2-1)/J as in the published nonlinear
-        // total-Lagrangian formulation; its linearisation about D=0
-        // yields -V*div(D) which is what InsertFvmDivUIntoPETScMatrix
-        // assembles in formJacobian.
+        // total-Lagrangian formulation. formJacobian inserts the matching
+        // derivative of this J-based term with respect to D.
         scalarField pressureResidual
         (
           - p*rKappa()
@@ -1141,22 +1444,21 @@ label nonLinGeomTotalLagTotalDispSolid::formJacobian
                 approxPressureJ, jac, blockSize_ - 1, blockSize_ - 1, 1
             );
 
-            // Insert D-in-p equation coefficients matching the
-            // linearisation of -0.5*(J^2-1)/J about D=0, which to
-            // leading order equals -V*div(D).
-            //
-            // InsertFvmDivU's sign convention: scale=+1 assembles
-            // `-V*div(U)`. So we pass `+pressureEqnScale_` to get
-            // J_pD = -alpha*V*div(D).
-            foamPetscSnesHelper::InsertFvmDivUIntoPETScMatrix
+            // Insert the D-in-p equation coefficients for the same
+            // finite-strain volumetric residual used in formResidual:
+            //   Rvol = -0.5*(J - 1/J)
+            //   dJ = J*tr(F^-1 dF)
+            // using the least-squares grad(D) coefficients.
+            insertFiniteStrainPressureDJacobian
             (
-                p,
+                *this,
                 D,
+                Finv_,
+                J_,
+                pressureEqnScale_,
                 jac,
                 blockSize_ - 1,             // row offset (p row)
-                0,                          // column offset (D columns)
-                solidModel::twoD() ? 2 : 3, // number of D components
-                pressureEqnScale_           // scale (helper returns -V*div with +1)
+                solidModel::twoD() ? 2 : 3  // number of D components
             );
 
             const surfaceVectorField SfCurrent
