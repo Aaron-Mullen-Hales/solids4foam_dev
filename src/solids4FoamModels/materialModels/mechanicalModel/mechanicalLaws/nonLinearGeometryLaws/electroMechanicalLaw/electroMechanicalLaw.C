@@ -33,6 +33,211 @@ namespace Foam
     );
 }
 
+namespace
+{
+
+const Foam::dictionary& electroMechanicalFibreDict
+(
+    const Foam::dictionary& dict
+)
+{
+    if
+    (
+        dict.lookupOrDefault<Foam::Switch>
+        (
+            "uniformFibreField",
+            Foam::Switch(false)
+        )
+    )
+    {
+        return dict;
+    }
+
+    if (dict.found("passiveMechanicalLaw"))
+    {
+        const Foam::dictionary& passiveDict =
+            dict.subDict("passiveMechanicalLaw");
+
+        if
+        (
+            passiveDict.lookupOrDefault<Foam::Switch>
+            (
+                "uniformFibreField",
+                Foam::Switch(false)
+            )
+        )
+        {
+            return passiveDict;
+        }
+    }
+
+    return dict;
+}
+
+
+Foam::IOobject findElectroMechanicalFibreFieldIOobject
+(
+    const Foam::word& fieldName,
+    const Foam::fvMesh& mesh
+)
+{
+    Foam::IOobject io
+    (
+        fieldName,
+        mesh.time().timeName(),
+        mesh,
+        Foam::IOobject::READ_IF_PRESENT,
+        Foam::IOobject::NO_WRITE
+    );
+
+#ifdef FOAMEXTEND
+    if (!io.headerOk())
+#elif defined(OPENFOAM_ORG)
+    if (!io.typeHeaderOk<Foam::volVectorField>(true))
+#else
+    if (!io.typeHeaderOk<Foam::volVectorField>(true, false, false))
+#endif
+    {
+        io.instance() = "0";
+
+#ifdef FOAMEXTEND
+        if (!io.headerOk())
+#elif defined(OPENFOAM_ORG)
+        if (!io.typeHeaderOk<Foam::volVectorField>(true))
+#else
+        if (!io.typeHeaderOk<Foam::volVectorField>(true, false, false))
+#endif
+        {
+            FatalErrorInFunction
+                << "Cannot find required fibre field " << fieldName
+                << " in either " << mesh.time().timeName() << " or 0"
+                << Foam::exit(Foam::FatalError);
+        }
+    }
+
+    io.readOpt() = Foam::IOobject::MUST_READ;
+
+    return io;
+}
+
+
+Foam::tmp<Foam::volVectorField> makeElectroMechanicalF0
+(
+    const Foam::fvMesh& mesh,
+    const Foam::dictionary& dict
+)
+{
+    const Foam::dictionary& fibreDict = electroMechanicalFibreDict(dict);
+
+    if
+    (
+        fibreDict.lookupOrDefault<Foam::Switch>
+        (
+            "uniformFibreField",
+            Foam::Switch(false)
+        )
+    )
+    {
+        return Foam::tmp<Foam::volVectorField>
+        (
+            new Foam::volVectorField
+            (
+                Foam::IOobject
+                (
+                    "f0",
+                    mesh.time().timeName(),
+                    mesh,
+                    Foam::IOobject::NO_READ,
+                    Foam::IOobject::NO_WRITE
+                ),
+                mesh,
+                Foam::dimensionedVector
+                (
+                    "f0",
+                    Foam::dimless,
+                    fibreDict.lookup("f0")
+                )
+            )
+        );
+    }
+
+    return Foam::tmp<Foam::volVectorField>
+    (
+        new Foam::volVectorField
+        (
+            findElectroMechanicalFibreFieldIOobject("f0", mesh),
+            mesh
+        )
+    );
+}
+
+
+Foam::tmp<Foam::surfaceVectorField> makeElectroMechanicalF0f
+(
+    const Foam::fvMesh& mesh,
+    const Foam::dictionary& dict
+)
+{
+    const Foam::dictionary& fibreDict = electroMechanicalFibreDict(dict);
+
+    if
+    (
+        fibreDict.lookupOrDefault<Foam::Switch>
+        (
+            "uniformFibreField",
+            Foam::Switch(false)
+        )
+    )
+    {
+        return Foam::tmp<Foam::surfaceVectorField>
+        (
+            new Foam::surfaceVectorField
+            (
+                Foam::IOobject
+                (
+                    "f0f",
+                    mesh.time().timeName(),
+                    mesh,
+                    Foam::IOobject::NO_READ,
+                    Foam::IOobject::NO_WRITE
+                ),
+                mesh,
+                Foam::dimensionedVector
+                (
+                    "f0",
+                    Foam::dimless,
+                    fibreDict.lookup("f0")
+                )
+            )
+        );
+    }
+
+    return Foam::tmp<Foam::surfaceVectorField>
+    (
+        new Foam::surfaceVectorField
+        (
+            Foam::IOobject
+            (
+                "f0f",
+                mesh.time().timeName(),
+                mesh,
+                Foam::IOobject::NO_READ,
+                Foam::IOobject::NO_WRITE
+            ),
+            Foam::fvc::interpolate
+            (
+                Foam::volVectorField
+                (
+                    findElectroMechanicalFibreFieldIOobject("f0", mesh),
+                    mesh
+                )
+            )
+        )
+    );
+}
+
+}
+
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -56,31 +261,9 @@ Foam::electroMechanicalLaw::electroMechanicalLaw
             nonLinGeom
         )
     ),
-    f0_
-    (
-        IOobject
-        (
-            "f0",
-            mesh.time().timeName(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::AUTO_WRITE
-        ),
-        mesh
-    ),
+    f0_(makeElectroMechanicalF0(mesh, dict)),
     f0f0_("f0f0", sqr(f0_)),
-    f0f_
-    (
-        IOobject
-        (
-            "f0f",
-            mesh.time().timeName(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::AUTO_WRITE
-        ),
-        mesh
-    ),
+    f0f_(makeElectroMechanicalF0f(mesh, dict)),
     f0f0f_("f0f0f", sqr(f0f_)),
     Ta_(dict.lookup("activeTension")),
     rampTime_(readScalar(dict.lookup("rampTime"))),
