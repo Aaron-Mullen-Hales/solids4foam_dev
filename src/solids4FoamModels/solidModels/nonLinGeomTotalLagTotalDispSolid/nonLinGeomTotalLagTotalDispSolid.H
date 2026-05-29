@@ -122,8 +122,8 @@ class nonLinGeomTotalLagTotalDispSolid
         const scalar pressureScaleFactor_;
 
         //- If true, multiply pressureScaleFactor_ by a representative
-        //  2*mu so that the pressure-equation residual has units
-        //  comparable to the momentum equation
+        //  2*mu. Defaults to false for this nonlinear mixed model because the
+        //  PETSc pressure unknown is already scaled by 2*mu by default.
         const Switch pressureScaleByTwoMu_;
 
         //- Representative value of 2*mu used as the physical scale of

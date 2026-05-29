@@ -835,7 +835,7 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
     ),
     pressureScaleByTwoMu_
     (
-        solidModelDict().lookupOrDefault<Switch>("pressureScaleByTwoMu", true)
+        solidModelDict().lookupOrDefault<Switch>("pressureScaleByTwoMu", false)
     ),
     twoMuRef_(1.0),
     pressureEqnScale_(pressureScaleFactor_),
@@ -893,11 +893,10 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
             )
         );
 
-        // Use a volume-weighted average of 2*mu as the physical scale
-        // of the pressure equation. The pressure-row residual and
-        // Jacobian are then multiplied by
-        // pressureEqnScale_ = pressureScaleFactor_ * twoMuRef_ so that
-        // their natural magnitude is comparable to the momentum block.
+        // Use a volume-weighted average of 2*mu as the PETSc pressure unknown
+        // scale by default. Do not also apply this as a pressure-row scale;
+        // otherwise the p-p block seen by the preconditioner is scaled by
+        // (2*mu)^2.
         const volScalarField twoMu(2.0*mechanical().shearModulus());
         scalar twoMuV = 0;
         scalar Vtot = 0;
@@ -1329,9 +1328,8 @@ label nonLinGeomTotalLagTotalDispSolid::formResidual
         // Make residual extensive
         pressureResidual *= mesh.V();
 
-        // Apply the physical row scaling. pressureEqnScale_ already
-        // bakes in both the user-facing pressureScaleFactor and the
-        // 2*mu physical scale.
+        // Apply only the user-facing pressure row scaling by default. The
+        // physical pressure scale is carried by the PETSc unknown pHat.
         if (pressureEqnScale_ != 1.0)
         {
             pressureResidual *= pressureEqnScale_;
