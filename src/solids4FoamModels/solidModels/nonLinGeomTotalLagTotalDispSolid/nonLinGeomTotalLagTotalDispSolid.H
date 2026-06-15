@@ -145,6 +145,9 @@ class nonLinGeomTotalLagTotalDispSolid
 
     // Private Member Functions
 
+        //- Make the implicit stiffness for momentum stabilisation
+        tmp<volScalarField> makeImpK() const;
+
         //- Predict the fields for the next time-step based on the
         //  previous time-steps
         void predict();

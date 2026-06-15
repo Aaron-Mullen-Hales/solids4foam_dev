@@ -51,6 +51,96 @@ addToRunTimeSelectionTable
 // * * * * * * * * * * *  Private Member Functions * * * * * * * * * * * * * //
 
 
+tmp<volScalarField> nonLinGeomTotalLagTotalDispSolid::makeImpK() const
+{
+    if (!solvePressure())
+    {
+        return mechanical().impK();
+    }
+
+    const word mixedMomentumImpK
+    (
+        solidModelDict().lookupOrDefault<word>
+        (
+            "mixedMomentumImpK", "twoMu"
+        )
+    );
+
+    Info<< "mixedMomentumImpK = " << mixedMomentumImpK << endl;
+
+    if (mixedMomentumImpK == "twoMu" || mixedMomentumImpK == "2mu")
+    {
+        return 2.0*mechanical().shearModulus();
+    }
+    else if (mixedMomentumImpK == "fullLambda")
+    {
+        return mechanical().impK();
+    }
+    else if (mixedMomentumImpK == "cappedLambda")
+    {
+        const scalar lambdaMaxCoeff =
+            solidModelDict().lookupOrDefault<scalar>
+            (
+                "mixedMomentumLambdaMaxCoeff", 20.0
+            );
+
+        if (lambdaMaxCoeff <= 0.0)
+        {
+            FatalErrorInFunction
+                << "mixedMomentumLambdaMaxCoeff must be positive, found "
+                << lambdaMaxCoeff << abort(FatalError);
+        }
+
+        const scalar nu0 =
+            solidModelDict().lookupOrDefault<scalar>
+            (
+                "mixedMomentumReferenceNu", 0.3
+            );
+
+        if (nu0 < 0.0 || nu0 >= 0.5)
+        {
+            FatalErrorInFunction
+                << "mixedMomentumReferenceNu must satisfy 0 <= nu < 0.5, "
+                << "found " << nu0 << abort(FatalError);
+        }
+
+        const scalar rho0 = 2.0*nu0/(1.0 - 2.0*nu0);
+        const scalar alpha =
+            (2.0 + rho0)
+           /(2.0 + (rho0*lambdaMaxCoeff)/(rho0 + lambdaMaxCoeff));
+
+        Info<< "mixedMomentumLambdaMaxCoeff = " << lambdaMaxCoeff
+            << ", mixedMomentumReferenceNu = " << nu0
+            << ", mixedMomentumAlpha = " << alpha << endl;
+
+        tmp<volScalarField> tMu = mechanical().shearModulus();
+        const volScalarField& mu = tMu();
+
+        tmp<volScalarField> tK = mechanical().bulkModulus();
+        const volScalarField& K = tK();
+
+        tmp<volScalarField> tLambda = K - (2.0/3.0)*mu;
+        const volScalarField& lambda = tLambda();
+
+        tmp<volScalarField> tLambdaMax = lambdaMaxCoeff*mu;
+        const volScalarField& lambdaMax = tLambdaMax();
+
+        tmp<volScalarField> tLambdaEff =
+            lambda*lambdaMax/(lambda + lambdaMax);
+        const volScalarField& lambdaEff = tLambdaEff();
+
+        return alpha*(2.0*mu + lambdaEff);
+    }
+
+    FatalErrorInFunction
+        << "Unknown mixedMomentumImpK " << mixedMomentumImpK << nl
+        << "Valid options are twoMu, 2mu, fullLambda, cappedLambda"
+        << abort(FatalError);
+
+    return mechanical().impK();
+}
+
+
 void nonLinGeomTotalLagTotalDispSolid::predict()
 {
     Info<< "Linear predictor" << endl;
@@ -501,12 +591,7 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         ),
         fvc::d2dt2(D())
     ),
-    impK_
-    (
-        solvePressure()
-      ? 2.0*mechanical().shearModulus()
-      : mechanical().impK()
-    ),
+    impK_(makeImpK()),
     impKf_(fvc::interpolate(impK_)),
     rImpK_(1.0/impK_),
     rKappaPtr_(),
@@ -595,16 +680,20 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         // pressureEqnScale_ = pressureScaleFactor_ * twoMuRef_ so that
         // their natural magnitude is comparable to the momentum block.
         const volScalarField twoMu(2.0*mechanical().shearModulus());
+        scalar impKV = 0;
         scalar twoMuV = 0;
         scalar Vtot = 0;
         forAll(twoMu, cellI)
         {
             const scalar Vc = mesh().V()[cellI];
+            impKV += impK_[cellI]*Vc;
             twoMuV += twoMu[cellI]*Vc;
             Vtot += Vc;
         }
+        reduce(impKV, sumOp<scalar>());
         reduce(twoMuV, sumOp<scalar>());
         reduce(Vtot, sumOp<scalar>());
+        const scalar impKRef = impKV/Vtot;
         twoMuRef_ = twoMuV/Vtot;
         pressureEqnScale_ =
             pressureScaleFactor_*(pressureScaleByTwoMu_ ? twoMuRef_ : 1.0);
@@ -656,6 +745,9 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         Info<< "pressureEqnScale = " << pressureEqnScale_
             << ", where pressureScaleFactor = " << pressureScaleFactor_
             << " and 2*mu = " << twoMuRef_ << endl;
+
+        Info<< "mixed impK volume-weighted average = " << impKRef << nl
+            << "2*mu volume-weighted average = " << twoMuRef_ << endl;
 
         Info<< "PETSc pressure unknown scale = " << pressureUnknownScale_
             << " (scaleMixedPetScFields = " << scaleMixedPetScFields_
