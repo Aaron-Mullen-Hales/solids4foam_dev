@@ -49,6 +49,96 @@ addToRunTimeSelectionTable(solidModel, linGeomTotalDispSolid, dictionary);
 
 // * * * * * * * * * * *  Private Member Functions * * * * * * * * * * * * * //
 
+tmp<volScalarField> linGeomTotalDispSolid::makeImpK() const
+{
+    if (!solvePressure())
+    {
+        return mechanical().impK();
+    }
+
+    const word mixedMomentumImpK
+    (
+        solidModelDict().lookupOrDefault<word>
+        (
+            "mixedMomentumImpK", "twoMu"
+        )
+    );
+
+    Info<< "mixedMomentumImpK = " << mixedMomentumImpK << endl;
+
+    if (mixedMomentumImpK == "twoMu" || mixedMomentumImpK == "2mu")
+    {
+        return 2.0*mechanical().shearModulus();
+    }
+    else if (mixedMomentumImpK == "fullLambda")
+    {
+        return mechanical().impK();
+    }
+    else if (mixedMomentumImpK == "cappedLambda")
+    {
+        const scalar lambdaMaxCoeff =
+            solidModelDict().lookupOrDefault<scalar>
+            (
+                "mixedMomentumLambdaMaxCoeff", 20.0
+            );
+
+        if (lambdaMaxCoeff <= 0.0)
+        {
+            FatalErrorInFunction
+                << "mixedMomentumLambdaMaxCoeff must be positive, found "
+                << lambdaMaxCoeff << abort(FatalError);
+        }
+
+        const scalar nu0 =
+            solidModelDict().lookupOrDefault<scalar>
+            (
+                "mixedMomentumReferenceNu", 0.3
+            );
+
+        if (nu0 < 0.0 || nu0 >= 0.5)
+        {
+            FatalErrorInFunction
+                << "mixedMomentumReferenceNu must satisfy 0 <= nu < 0.5, "
+                << "found " << nu0 << abort(FatalError);
+        }
+
+        const scalar rho0 = 2.0*nu0/(1.0 - 2.0*nu0);
+        const scalar alpha =
+            (2.0 + rho0)
+           /(2.0 + (rho0*lambdaMaxCoeff)/(rho0 + lambdaMaxCoeff));
+
+        Info<< "mixedMomentumLambdaMaxCoeff = " << lambdaMaxCoeff
+            << ", mixedMomentumReferenceNu = " << nu0
+            << ", mixedMomentumAlpha = " << alpha << endl;
+
+        tmp<volScalarField> tMu = mechanical().shearModulus();
+        const volScalarField& mu = tMu();
+
+        tmp<volScalarField> tK = mechanical().bulkModulus();
+        const volScalarField& K = tK();
+
+        tmp<volScalarField> tLambda = K - (2.0/3.0)*mu;
+        const volScalarField& lambda = tLambda();
+
+        tmp<volScalarField> tLambdaMax = lambdaMaxCoeff*mu;
+        const volScalarField& lambdaMax = tLambdaMax();
+
+        tmp<volScalarField> tLambdaEff =
+            lambda*lambdaMax/(lambda + lambdaMax);
+        const volScalarField& lambdaEff = tLambdaEff();
+
+        return alpha*(2.0*mu + lambdaEff);
+    }
+
+    FatalErrorInFunction
+        << "Unknown mixedMomentumImpK " << mixedMomentumImpK << nl
+        << "Valid options are twoMu, 2mu, fullLambda, cappedLambda"
+        << abort(FatalError);
+
+    return mechanical().impK();
+}
+
+
 void linGeomTotalDispSolid::predict()
 {
     Info<< "Applying linear predictor to D" << endl;
@@ -603,12 +693,7 @@ linGeomTotalDispSolid::linGeomTotalDispSolid
         solidModelDict().lookupOrDefault<Switch>("stopOnPetscError", true),
         bool(solutionAlg() == solutionAlgorithm::PETSC_SNES)
     ),
-    impK_
-    (
-        solvePressure()
-      ? 2.0*mechanical().shearModulus()
-      : mechanical().impK()
-    ),
+    impK_(makeImpK()),
     impKf_(fvc::interpolate(impK_)),
     rImpK_(1.0/impK_),
     rKappa_(1.0/mechanical().bulkModulus()),
@@ -786,21 +871,26 @@ linGeomTotalDispSolid::linGeomTotalDispSolid
 
     if (solvePressure())
     {
-        // Use a volume-weighted average of 2*mu (== impK_ when solving
-        // for pressure) as the physical scale of the pressure equation.
-        // The pressure-row residual and Jacobian are then multiplied by
+        // Use a volume-weighted average of 2*mu as the physical scale
+        // of the pressure equation. The pressure-row residual and
+        // Jacobian are then multiplied by
         // pressureEqnScale_ = pressureScaleFactor_ * twoMuRef_ so that
         // their natural magnitude is comparable to the momentum block.
+        const volScalarField twoMu(2.0*mechanical().shearModulus());
+        scalar impKV = 0;
         scalar twoMuV = 0;
         scalar Vtot = 0;
         forAll(impK_, cellI)
         {
             const scalar Vc = mesh().V()[cellI];
-            twoMuV += impK_[cellI]*Vc;
+            impKV += impK_[cellI]*Vc;
+            twoMuV += twoMu[cellI]*Vc;
             Vtot += Vc;
         }
+        reduce(impKV, sumOp<scalar>());
         reduce(twoMuV, sumOp<scalar>());
         reduce(Vtot, sumOp<scalar>());
+        const scalar impKRef = impKV/Vtot;
         twoMuRef_ = twoMuV/Vtot;
         pressureEqnScale_ =
             pressureScaleFactor_*(pressureScaleByTwoMu_ ? twoMuRef_ : 1.0);
@@ -852,6 +942,9 @@ linGeomTotalDispSolid::linGeomTotalDispSolid
         Info<< "pressureEqnScale = " << pressureEqnScale_
             << ", where pressureScaleFactor = " << pressureScaleFactor_
             << " and 2*mu = " << twoMuRef_ << endl;
+
+        Info<< "mixed impK volume-weighted average = " << impKRef << nl
+            << "2*mu volume-weighted average = " << twoMuRef_ << endl;
 
         Info<< "PETSc pressure unknown scale = " << pressureUnknownScale_
             << " (scaleMixedPetScFields = " << scaleMixedPetScFields_
@@ -1328,13 +1421,13 @@ label linGeomTotalDispSolid::formJacobian
         // not currently apply matrix under-relaxation to the high-order
         // Jacobian assembled directly into PETSc. If this becomes important
         // for robustness, an equivalent relaxation step may need to be added.
+        tmp<volScalarField> tMu = mechanical().shearModulus();
+        const volScalarField& mu = tMu();
+
         tmp<volScalarField> tK = mechanical().bulkModulus();
         const volScalarField& K = tK();
 
-        tmp<volScalarField> tMu = (impK_ - K)*(3.0/4.0);
-        const volScalarField& mu = tMu();
-
-        tmp<volScalarField> tLambda = impK_ - 2.0*mu;
+        tmp<volScalarField> tLambda = K - (2.0/3.0)*mu;
         const volScalarField& lambda = tLambda();
 
         const movingLeastSquares& mls = displacementMLS();
