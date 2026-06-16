@@ -725,6 +725,7 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
         // to read
         const volTensorField& F = this->F();
         const volTensorField FT("FT", F.T());
+        const volScalarField J("J", det(F));
 
         // Calculate the right Cauchy-Green deformation tensor
         const volSymmTensorField C("C", symm(FT & F));
@@ -831,7 +832,7 @@ void Foam::GuccioneElastic::correct(volSymmTensorField& sigma)
 
         // Convert the second Piola-Kirchhoff stress to the deviatoric Cauchy
         // stress
-        const volSymmTensorField s("s", dev(symm(F & S_ & FT)));
+        const volSymmTensorField s("s", dev(symm(F & S_ & FT))/J);
 
         // Lookup pressure field
         const volScalarField& p =
@@ -991,6 +992,7 @@ void Foam::GuccioneElastic::correct(surfaceSymmTensorField& sigma)
         // to read
         const surfaceTensorField& Ff = this->Ff();
         const surfaceTensorField FfT("FfT", Ff.T());
+        const surfaceScalarField Jf("Jf", det(Ff));
 
         // Calculate the right Cauchy-Green deformation tensor
         const surfaceSymmTensorField C("C", symm(FfT & Ff));
@@ -1125,7 +1127,7 @@ void Foam::GuccioneElastic::correct(surfaceSymmTensorField& sigma)
 
         // Convert the second Piola-Kirchhoff stress to the deviatoric Cauchy
         // stress
-        const surfaceSymmTensorField sf("sf", dev(symm(Ff & Sf_ & FfT)));
+        const surfaceSymmTensorField sf("sf", dev(symm(Ff & Sf_ & FfT))/Jf);
 
         // Lookup pressure field
         const surfaceScalarField& pf =
@@ -1158,6 +1160,7 @@ void Foam::GuccioneElastic::calcDevCauchy
 {
     // Calculate the right Cauchy-Green deformation tensor
     const tensor FT(F.T());
+    const scalar J(det(F));
     const symmTensor C(symm(FT & F));
 
     // Calculate the Green-Lagrange strain
@@ -1250,7 +1253,7 @@ void Foam::GuccioneElastic::calcDevCauchy
 
     // Convert the second Piola-Kirchhoff stress to the Cauchy stress and take
     // the deviatoric component
-    devSigma = dev(symm(F & S & FT));
+    devSigma = dev(symm(F & S & FT))/J;
 }
 
 
