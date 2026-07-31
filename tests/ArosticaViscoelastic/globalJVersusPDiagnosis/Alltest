@@ -1,0 +1,334 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repoRoot=$(CDPATH= cd -- "$scriptDir/../../.." && pwd)
+foamBashrc=${FOAM_BASHRC:-/Volumes/OpenFoam/OpenFOAM-v2312/etc/bashrc}
+archiveBase=${S4F_AUDIT_ARCHIVE_BASE:-/Volumes/OpenFoam/aaronmullen-hales-v2312/run/CardiacMechanics/ventricle/arostica/diagnostics}
+utcStamp=$(date -u +%Y%m%dT%H%M%SZ)
+archive="$archiveBase/land_arostica_actual_state_mffd_fd_$utcStamp"
+
+if [ ! -f "$foamBashrc" ]; then
+    echo "FAIL: OpenFOAM bashrc not found: $foamBashrc" >&2
+    exit 1
+fi
+mkdir -p "$archive"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/ArosticaMffdFdAudit.XXXXXX")
+work=$(CDPATH= cd -- "$work" && pwd -P)
+runtime="$work/runtime"
+snapshot="$work/source"
+cases="$work/cases"
+mkdir -p "$runtime/lib" "$runtime/bin" "$cases"
+
+finish()
+{
+    code=$?
+    set +e
+    mkdir -p "$archive/working-copy"
+    cp -a "$work/." "$archive/working-copy/"
+    if [ "$code" -eq 0 ]; then
+        rm -rf "$work"
+    else
+        printf 'audit_exit_code %s\n' "$code" > "$archive/failure-report.txt"
+    fi
+    exit "$code"
+}
+trap finish EXIT HUP INT TERM
+
+set +e
+set +u
+foamSourceLog="$archive/foam-source.log"
+. "$foamBashrc" > "$foamSourceLog" 2>&1
+foamSourceStatus=$?
+set -u
+set -e
+if [ "$foamSourceStatus" -ne 0 ]; then
+    echo "FAIL: OpenFOAM environment source failed with status $foamSourceStatus" >&2
+    exit 1
+fi
+
+liveUserLibBefore=${FOAM_USER_LIBBIN:-}
+liveModuleLibBefore=${FOAM_MODULE_LIBBIN:-}
+livePlatformLib="$FOAM_LIBBIN/libsolids4FoamModels.dylib"
+if [ -z "$liveUserLibBefore" ]; then
+    liveUserLibBefore="$repoRoot/platforms/$WM_OPTIONS/lib"
+fi
+if [ -z "$liveModuleLibBefore" ]; then
+    liveModuleLibBefore="$liveUserLibBefore"
+fi
+
+export FOAM_USER_LIBBIN="$runtime/lib"
+export FOAM_USER_APPBIN="$runtime/bin"
+export FOAM_MODULE_LIBBIN="$runtime/lib"
+export FOAM_MODULE_APPBIN="$runtime/bin"
+
+for outputDir in "$FOAM_USER_LIBBIN" "$FOAM_USER_APPBIN" \
+                 "$FOAM_MODULE_LIBBIN" "$FOAM_MODULE_APPBIN"
+do
+    case "$outputDir" in
+        "$runtime"/*) ;;
+        *) echo "FAIL: non-isolated wmake output: $outputDir" >&2; exit 1 ;;
+    esac
+done
+
+rsync -a --exclude '/platforms' "$repoRoot/" "$snapshot/"
+
+# Leave enough Mach-O load-command space to replace the model dependency with
+# the private absolute path after linking.  The copied snapshot is disposable;
+# no repository Make/options file is changed.
+for makeOptions in \
+    "$snapshot/applications/solvers/solids4Foam/Make/options" \
+    "$snapshot/tests/ArosticaViscoelastic/globalJVersusPDiagnosis/Make/options"
+do
+    perl -0pi.bak -e \
+        's/EXE_LIBS = \\\n/EXE_LIBS = \\\n    -Wl,-headerpad_max_install_names \\\n/' "$makeOptions"
+done
+
+{
+    printf 'archive %s\n' "$archive"
+    printf 'branch '; git -C "$repoRoot" branch --show-current
+    printf 'head '; git -C "$repoRoot" rev-parse HEAD
+    printf '\n--- status ---\n'
+    git -C "$repoRoot" status --short --branch
+    printf '\n--- binary diff ---\n'
+    git -C "$repoRoot" diff --binary
+    printf '\n--- environment ---\n'
+    env | sort | grep -E '^(WM_|FOAM_|PETSC_|MPI_|S4F_|LIB_|EXE_)' || true
+    printf '\n--- versions ---\n'
+    echo "WM_PROJECT=$WM_PROJECT"
+    echo "WM_PROJECT_VERSION=$WM_PROJECT_VERSION"
+    echo "WM_OPTIONS=$WM_OPTIONS"
+    echo "PETSC_DIR=$PETSC_DIR"
+    echo "PETSC_ARCH=$PETSC_ARCH"
+    echo "MPI_ARCH_PATH=$MPI_ARCH_PATH"
+    foamInstallationTest -help 2>&1 || true
+} > "$archive/source-runtime-manifest.txt"
+
+git -C "$repoRoot" ls-files --others --exclude-standard > "$archive/untracked-files.txt"
+(
+    cd "$snapshot"
+    find . -type f \( -name '*.C' -o -name '*.H' -o -name '*.h' \
+        -o -name '*.c' -o -name '*.cpp' \) -print | sort |
+    while IFS= read -r file
+    do
+        shasum -a 256 "$file"
+    done
+) > "$archive/source-header-sha256.txt"
+
+liveModelManifest="$archive/live-model-before.txt"
+: > "$liveModelManifest"
+for liveModel in \
+    "$FOAM_LIBBIN/libsolids4FoamModels.dylib" \
+    "$liveUserLibBefore/libsolids4FoamModels.dylib" \
+    "$liveModuleLibBefore/libsolids4FoamModels.dylib" \
+    "$livePlatformLib"
+do
+    if [ -f "$liveModel" ]; then
+        shasum -a 256 "$liveModel" >> "$liveModelManifest"
+        stat -f '%N %m %z' "$liveModel" >> "$liveModelManifest"
+    fi
+done
+
+build()
+{
+    name=$1
+    directory=$2
+    target=$3
+    log="$archive/build-$name.log"
+    printf 'target %s\nsource %s\noutput-lib %s\noutput-bin %s\n' \
+        "$target" "$snapshot/$directory" "$FOAM_MODULE_LIBBIN" \
+        "$FOAM_MODULE_APPBIN" > "$archive/target-expansion-$name.txt"
+    if [ -n "$target" ]; then
+        buildCommand="wmake $target"
+    else
+        buildCommand="wmake"
+    fi
+    if ! (cd "$snapshot/$directory" && sh -c "$buildCommand") > "$log" 2>&1; then
+        echo "FAIL: wmake $name; see $log" >&2
+        exit 1
+    fi
+    rg -n "$runtime|libsolids4FoamModels|libblockCoupled|libRBFMesh" \
+        "$log" >> "$archive/target-expansion-$name.txt" || true
+}
+
+build blockTools src/blockCoupledSolids4FoamTools libso
+build rbfTools src/RBFMeshMotionSolver libso
+build models src/solids4FoamModels libso
+build solver applications/solvers/solids4Foam ''
+build diagnostic tests/ArosticaViscoelastic/globalJVersusPDiagnosis ''
+
+diagnostic="$runtime/bin/ArosticaGlobalJVersusPDiagnosis"
+solver="$runtime/bin/solids4Foam"
+modelLibrary="$runtime/lib/libsolids4FoamModels.dylib"
+test -x "$diagnostic"
+test -x "$solver"
+test -f "$modelLibrary"
+
+for executable in "$diagnostic" "$solver"
+do
+    install_name_tool -change \
+        '@rpath/libsolids4FoamModels.dylib' "$modelLibrary" "$executable"
+done
+
+# The solver Make/options does not carry the OpenFOAM platform rpath.  The
+# isolated runner deliberately removes DYLD_LIBRARY_PATH, so add the
+# platform library directory to the disposable executable before smoke tests.
+install_name_tool -add_rpath "$FOAM_LIBBIN" "$solver"
+
+{
+    find "$runtime" -maxdepth 2 -type f -print -exec shasum -a 256 {} \;
+    find "$runtime" -maxdepth 2 -type f -print -exec stat -f '%N %m %z' {} \;
+} > "$archive/runtime-files-hashes-and-times.txt"
+for binary in "$diagnostic" "$solver" "$modelLibrary" \
+              "$runtime/lib/libblockCoupledSolids4FoamTools.dylib" \
+              "$runtime/lib/libRBFMeshMotionSolver.dylib"
+do
+    otool -L "$binary" > "$archive/$(basename "$binary").otool-L.txt"
+    otool -l "$binary" > "$archive/$(basename "$binary").otool-l.txt"
+done
+
+liveModelAfter="$archive/live-model-after.txt"
+: > "$liveModelAfter"
+for liveModel in \
+    "$FOAM_LIBBIN/libsolids4FoamModels.dylib" \
+    "$liveUserLibBefore/libsolids4FoamModels.dylib" \
+    "$liveModuleLibBefore/libsolids4FoamModels.dylib" \
+    "$livePlatformLib"
+do
+    if [ -f "$liveModel" ]; then
+        shasum -a 256 "$liveModel" >> "$liveModelAfter"
+        stat -f '%N %m %z' "$liveModel" >> "$liveModelAfter"
+    fi
+done
+if ! cmp -s "$liveModelManifest" "$liveModelAfter"; then
+    echo "FAIL: live platform model library changed during isolated build" >&2
+    exit 1
+fi
+
+fixture="$cases/arostica-reduced"
+rsync -a "$scriptDir/case/" "$fixture/"
+
+landCase=${S4F_LAND_CASE:-/Volumes/OpenFoam/aaronmullen-hales-v2312/run/phdS3/Land/problem1/mesh2}
+arosticaCase=${S4F_AROSTICA_CASE:-/Volumes/OpenFoam/aaronmullen-hales-v2312/run/CardiacMechanics/ventricle/arostica/monoventricle/caseB/mesh1}
+if [ ! -d "$landCase" ] || [ ! -d "$arosticaCase" ]; then
+    echo "FAIL: benchmark case path missing; set S4F_LAND_CASE/S4F_AROSTICA_CASE" >&2
+    exit 1
+fi
+
+landPre="$cases/land-pre-step"
+landAccepted="$cases/land-accepted-state"
+arosticaPre="$cases/arostica-caseB-pre-step"
+controlA="$cases/control-A"
+controlB="$cases/control-B"
+rsync -a "$landCase/" "$landPre/"
+rsync -a "$landCase/" "$landAccepted/"
+rsync -a "$arosticaCase/" "$arosticaPre/"
+rsync -a "$arosticaCase/" "$controlA/"
+rsync -a "$arosticaCase/" "$controlB/"
+
+printf 'control A: copied Aróstica Case B state; no production files changed\n' \
+    > "$controlA/diagnostic-control-label.txt"
+sed -i.bak \
+    's/faceStressTreatment[[:space:]][[:space:]]*directConstitutive;/faceStressTreatment interpolatedCell;/' \
+    "$controlB/constant/solidProperties"
+printf 'control B: copied Aróstica Case B state; no production files changed\n' \
+    > "$controlB/diagnostic-control-label.txt"
+
+stageArosticaAuditCase()
+{
+    caseDir=$1
+    mkdir -p "$caseDir/0.001"
+    rsync -a "$caseDir/0/" "$caseDir/0.001/"
+    find "$caseDir/0.001" -maxdepth 1 -type f -exec \
+        sed -i.bak 's/location[[:space:]]*"0";/location    "0.001";/' {} \;
+    sed -i.bak 's/startTime[[:space:]][^;]*;/startTime 0.001;/' \
+        "$caseDir/system/controlDict"
+    perl -0pi -e \
+        's/pressureSeries\s*\{[^}]*\}/pressure uniform 0.016071182;/g' \
+        "$caseDir/0.001/D"
+    printf 'Aróstica Case B audit state: pre-step at t=0.001\npressure input: 0.016071182 Pa\n' \
+        > "$caseDir/arostica-audit-input.txt"
+}
+
+stageArosticaAuditCase "$arosticaPre"
+stageArosticaAuditCase "$controlA"
+stageArosticaAuditCase "$controlB"
+
+runDiagnostic()
+{
+    label=$1
+    caseDir=$2
+    log="$archive/log-diagnostic-$label.log"
+    if ! (cd "$caseDir" && \
+        env -u DYLD_LIBRARY_PATH -u LD_LIBRARY_PATH \
+        DYLD_PRINT_LIBRARIES=1 "$diagnostic" -case . -actionAudit \
+        -stateLabel "$label") > "$log" 2>&1; then
+        echo "FAIL: diagnostic $label; see $log" >&2
+        exit 1
+    fi
+    grep -q 'PASS: standalone block-aware MFFD/FD diagnosis completed' "$log"
+    grep -q "$modelLibrary" "$log"
+    if rg -q '1623b2f2|runtime_binary_snapshots|platforms/.*/libsolids4FoamModels' "$log"; then
+        echo "FAIL: forbidden model-library path appeared in loader log $log" >&2
+        exit 1
+    fi
+}
+
+runSmoke()
+{
+    label=$1
+    sourceCase=$2
+    smokeCase="$cases/smoke-$label"
+    rsync -a "$sourceCase/" "$smokeCase/"
+    sed -i.bak 's/endTime[[:space:]][^;]*;/endTime 0;/' \
+        "$smokeCase/system/controlDict"
+    log="$archive/log-runtime-smoke-$label.log"
+    if ! (cd "$smokeCase" && \
+        env -u DYLD_LIBRARY_PATH -u LD_LIBRARY_PATH \
+        DYLD_PRINT_LIBRARIES=1 "$solver" -case .) > "$log" 2>&1; then
+        echo "FAIL: runtime selection smoke $label; see $log" >&2
+        exit 1
+    fi
+    grep -q "$modelLibrary" "$log"
+    if rg -q '1623b2f2|runtime_binary_snapshots|platforms/.*/libsolids4FoamModels' "$log"; then
+        echo "FAIL: forbidden model-library path appeared in smoke log $log" >&2
+        exit 1
+    fi
+}
+
+runSmoke land "$landPre"
+runSmoke arostica "$fixture"
+runDiagnostic land-pre-step "$landPre"
+runDiagnostic land-accepted-incomplete "$landAccepted"
+runDiagnostic arostica-pre-step "$arosticaPre"
+runDiagnostic control-A "$controlA"
+runDiagnostic control-B "$controlB"
+
+cp -a "$snapshot" "$archive/source-snapshot"
+cp -a "$runtime" "$archive/runtime"
+cp -a "$cases" "$archive/cases"
+archiveModelLibrary="$archive/runtime/lib/libsolids4FoamModels.dylib"
+for archivedExecutable in \
+    "$archive/runtime/bin/ArosticaGlobalJVersusPDiagnosis" \
+    "$archive/runtime/bin/solids4Foam"
+do
+    install_name_tool -change "$modelLibrary" "$archiveModelLibrary" \
+        "$archivedExecutable"
+    otool -L "$archivedExecutable" \
+        > "$archive/$(basename "$archivedExecutable").archived.otool-L.txt"
+done
+shasum -a 256 "$archiveModelLibrary" > "$archive/archived-model-library.sha256"
+cat > "$archive/summary.txt" <<EOF
+PASS: isolated ABI/runtime MFFD/FD audit completed
+archive=$archive
+model_library=$archiveModelLibrary
+diagnostic=$archive/runtime/bin/ArosticaGlobalJVersusPDiagnosis
+land_state=accepted-incomplete (primary comparison prohibited)
+arostica_state=pre-step
+controls=control-A,control-B (secondary comparisons)
+full_mesh_fd_matrix=not formed
+EOF
+
+echo "PASS: Aróstica isolated block-aware MFFD/FD audit; archive=$archive"

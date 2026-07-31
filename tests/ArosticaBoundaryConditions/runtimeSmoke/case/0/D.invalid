@@ -1,0 +1,23 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    location    "0";
+    object      D;
+}
+
+dimensions      [0 1 0 0 0 0 0];
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    walls
+    {
+        type                arosticaVectorSpringDashpotTraction;
+        springCoefficient   springCoefficient [0 0 0 0 0 0 0] 1e5;
+        dashpotCoefficient  dashpotCoefficient [1 -2 -1 0 0 0 0] 5e3;
+        useUndeformedArea   true;
+        value               uniform (0 0 0);
+    }
+}

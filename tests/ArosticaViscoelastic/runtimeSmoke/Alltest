@@ -1,0 +1,44 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+baseCase="$scriptDir/../../../src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d /tmp/ArosticaViscoelasticSmoke.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/s0" "$caseDir/0/s0"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/n0" "$caseDir/0/n0"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/s0f" "$caseDir/0/s0f"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/n0f" "$caseDir/0/n0f"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/constant/lawProperties.arostica" \
+    "$caseDir/constant/lawProperties.visco"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/constant/lawProperties.arostica" \
+    "$caseDir/constant/lawProperties.viscoZero"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/constant/lawProperties.arostica" \
+    "$caseDir/constant/lawProperties.elastic"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/constant/solidProperties" \
+    "$caseDir/constant/solidProperties"
+sed -i.bak 's/arosticaElasticSmokeCoeffs/arosticaViscoSmokeCoeffs/' \
+    "$caseDir/constant/solidProperties"
+sed -i.bak 's/ArosticaHolzapfelOgdenElastic/ArosticaHolzapfelOgdenViscoelastic/' \
+    "$caseDir/constant/lawProperties.visco"
+sed -i.bak '/type[[:space:]]/a\
+eta                  eta [1 -1 -1 0 0 0 0] 100;\
+writeDiagnostics      true;' "$caseDir/constant/lawProperties.visco"
+sed -i.bak 's/ArosticaHolzapfelOgdenElastic/ArosticaHolzapfelOgdenViscoelastic/' \
+    "$caseDir/constant/lawProperties.viscoZero"
+sed -i.bak '/type[[:space:]]/a\
+eta                  eta [1 -1 -1 0 0 0 0] 0;' "$caseDir/constant/lawProperties.viscoZero"
+sed -i.bak 's/default[[:space:]]*steadyState;/default         backward;/' \
+    "$caseDir/system/fvSchemes"
+
+# Rebuild after mechanicalLaw interface changes so this smoke executable and
+# libsolids4FoamModels always share the same virtual-table layout.
+(cd "$scriptDir" && wmake > "$caseDir/log.wmake" 2>&1)
+
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+ArosticaHolzapfelOgdenViscoelasticSmoke -case "$caseDir"
+
+echo "PASS: Aróstica viscoelastic runtime smoke test"

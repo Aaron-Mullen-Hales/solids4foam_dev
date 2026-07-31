@@ -1,0 +1,29 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class polyBoundaryMesh;
+    object boundary;
+}
+
+3
+(
+    base
+    {
+        type patch;
+        nFaces 2;
+        startFace 6;
+    }
+    endocardium
+    {
+        type patch;
+        nFaces 1;
+        startFace 8;
+    }
+    epicardium
+    {
+        type patch;
+        nFaces 9;
+        startFace 9;
+    }
+)

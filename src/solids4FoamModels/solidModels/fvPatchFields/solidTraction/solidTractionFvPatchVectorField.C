@@ -597,7 +597,7 @@ void solidTractionFvPatchVectorField::write(Ostream& os) const
     os.writeKeyword("nonOrthogonalCorrections")
         << nonOrthogonalCorrections_ << token::END_STATEMENT << nl;
     os.writeKeyword("useUndeformedArea")
-        << useUndeformedArea_ << token::END_STATEMENT << nl;
+        << useUndeformedArea() << token::END_STATEMENT << nl;
 
     if (tractionFieldPtr_.valid())
     {

@@ -12,6 +12,8 @@ solidModels/kirchhoffPlateSolid/freeEdgeDisplacement/freeEdgeDisplacementFaPatch
 solidModels/linGeomTotalDispSolid/linGeomTotalDispSolid.C
 solidModels/nonLinGeomUpdatedLagSolid/nonLinGeomUpdatedLagSolid.C
 solidModels/nonLinGeomTotalLagTotalDispSolid/nonLinGeomTotalLagTotalDispSolid.C
+solidModels/nonLinGeomTotalLagTotalDispGultekinSolid/nonLinGeomTotalLagTotalDispGultekinSolid.C
+solidModels/nonLinGeomTotalLagTotalDispArosticaSolid/nonLinGeomTotalLagTotalDispArosticaSolid.C
 solidModels/poroLinGeomSolid/poroLinGeomSolid.C
 solidModels/thermalLinGeomSolid/thermalLinGeomSolid.C
 solidModels/thermalSolid/thermalSolid.C
@@ -70,6 +72,9 @@ $(nonLinGeomLaws)/diffusionHyperElastic/diffusionHyperElastic.C
 $(nonLinGeomLaws)/electroMechanicalLaw/electroMechanicalLaw.C
 $(nonLinGeomLaws)/GentElastic/GentElastic.C
 $(nonLinGeomLaws)/GuccioneElastic/GuccioneElastic.C
+$(nonLinGeomLaws)/GultekinTwoFibreElastic/GultekinTwoFibreElastic.C
+$(nonLinGeomLaws)/ArosticaHolzapfelOgdenElastic/ArosticaHolzapfelOgdenElastic.C
+$(nonLinGeomLaws)/ArosticaHolzapfelOgdenViscoelastic/ArosticaHolzapfelOgdenViscoelastic.C
 $(nonLinGeomLaws)/HolzapfelGasserOgdenElastic/HolzapfelGasserOgdenElastic.C
 $(nonLinGeomLaws)/isotropicFungElastic/isotropicFungElastic.C
 $(nonLinGeomLaws)/OgdenElastic/OgdenElastic.C
@@ -98,6 +103,9 @@ $(solidFvPatchFields)/rigidCylinderContact/rigidCylinderContactFvPatchVectorFiel
 $(solidFvPatchFields)/solidContact/solidContactFvPatchVectorField.C
 $(solidFvPatchFields)/solidContact/solidContactFvPatchVectorFieldCalcContact.C
 $(solidFvPatchFields)/solidForce/solidForceFvPatchVectorField.C
+$(solidFvPatchFields)/arosticaSpringDashpotTraction/arosticaSpringDashpotTractionFvPatchVectorField.C
+$(solidFvPatchFields)/arosticaNormalSpringDashpotTraction/arosticaNormalSpringDashpotTractionFvPatchVectorField.C
+$(solidFvPatchFields)/arosticaVectorSpringDashpotTraction/arosticaVectorSpringDashpotTractionFvPatchVectorField.C
 $(solidFvPatchFields)/solidRigidContact/solidRigidContactFvPatchVectorField.C
 $(solidFvPatchFields)/solidRigidContact/solidRigidContactFvPatchVectorFieldCalcContact.C
 $(solidFvPatchFields)/solidRigidContact/triSurfaceMotion/triSurfaceMotion.C
@@ -232,6 +240,9 @@ numerics/stabilisationModels/stabilisationModel/stabilisationModel.C
 numerics/stabilisationModels/alphaStab/alphaStab.C
 numerics/stabilisationModels/diffStencilLaplacianStab/diffStencilLaplacianStab.C
 numerics/stabilisationModels/diffStencilLaplacianStab/RhieChowStab/RhieChowStab.C
+numerics/stabilisationModels/diffStencilLaplacianStab/RhieChowZeroForceStab/RhieChowZeroForceStab.C
+numerics/stabilisationModels/diffStencilLaplacianStab/RhieChowAffineExactStab/RhieChowAffineExactStab.C
+numerics/stabilisationModels/diffStencilLaplacianStab/RhieChowHighPassStab/RhieChowHighPassStab.C
 numerics/stabilisationModels/generalisedEvenOrderLaplacianStab/generalisedEvenOrderLaplacianStab.C
 numerics/stabilisationModels/gradDivStab/gradDivStab.C
 numerics/stabilisationModels/JamesonSchmidtTurkelStab/JamesonSchmidtTurkelStab.C

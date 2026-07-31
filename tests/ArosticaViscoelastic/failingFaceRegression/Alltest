@@ -1,0 +1,94 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+defaultEvidence=/Volumes/OpenFoam/aaronmullen-hales-v2312/run/CardiacMechanics/ventricle/arostica/diagnostics/arostica_actual_state_mffd_fd_20260730T154802Z/case-state
+evidenceCase=${S4F_CASEB_REPRO_CASE:-$defaultEvidence}
+caseDir=$(mktemp -d /tmp/ArosticaFailingFaceRegression.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+if [ -n "${S4F_TEST_DYLD_LIBRARY_PATH:-}" ]
+then
+    export DYLD_LIBRARY_PATH="$S4F_TEST_DYLD_LIBRARY_PATH"
+elif [ -n "${S4F_TEST_LIBBIN:-}" ]
+then
+    export DYLD_LIBRARY_PATH="$S4F_TEST_LIBBIN:${FOAM_LIBBIN:-}:${DYLD_LIBRARY_PATH:-}"
+fi
+if [ -n "${S4F_TEST_LD_LIBRARY_PATH:-}" ]
+then
+    export LD_LIBRARY_PATH="$S4F_TEST_LD_LIBRARY_PATH"
+elif [ -n "${S4F_TEST_LIBBIN:-}" ]
+then
+    export LD_LIBRARY_PATH="$S4F_TEST_LIBBIN:${FOAM_LIBBIN:-}:${LD_LIBRARY_PATH:-}"
+fi
+
+if [ ! -d "$evidenceCase/constant/polyMesh" ]
+then
+    echo "FAIL: exact Case-B evidence fixture is missing: $evidenceCase" >&2
+    exit 1
+fi
+
+ArosticaFailingFaceRegression \
+    "$scriptDir/data/caseB-failing-face.dict"
+
+cp -R "$evidenceCase/." "$caseDir"
+cp "$scriptDir/data/petscOptions.split" "$caseDir/petscOptions.split"
+log="$caseDir/log.failingFaceRegression"
+if ! (
+    cd "$caseDir"
+    ArosticaGlobalJVersusPDiagnosis \
+        -case . \
+        -actionAudit \
+        -stateLabel pre-step \
+        -mode 6
+) > "$log" 2>&1
+then
+    cat "$log" >&2
+    exit 1
+fi
+
+grep -q \
+    'MODE_VECTOR mode=6 .*globalSize=70500 .*displacementEntries=52875 .*pressureEntries=17625 .*zeroEntries=17625' \
+    "$log"
+grep -q 'residual repeat norm = 0' "$log"
+grep -q 'MFFD_repeat=0' "$log"
+grep -q 'PASS: standalone mode-only diagnostic completed for mode 6' "$log"
+
+if grep -Eq 'finite=no|invalidJ=[1-9]|FOAM FATAL|DIAGNOSTIC_SIGNAL_BACKTRACE' "$log"
+then
+    echo "FAIL: non-finite or invalid trial state reached" >&2
+    exit 1
+fi
+
+awk '
+    /stage=base_residual_after/ && state == 0 { state = 1 }
+    /CHECKPOINT MFFD before-first-MatMult/ && state == 1 { state = 2 }
+    /CHECKPOINT MFFD after-first-MatMult/ && state == 2 { state = 3 }
+    /CHECKPOINT MFFD before-second-MatMult/ && state == 3 { state = 4 }
+    /CHECKPOINT MFFD after-second-MatMult/ && state == 4 { state = 5 }
+    /central-FD mode=6 epsilon=0.0001 plus-after-formResidual/ && state == 5
+        { state = 6 }
+    /stage=central-restore-before-minus_prepared/ && state == 6 { state = 7 }
+    /central-FD mode=6 epsilon=0.0001 minus-after-formResidual/ && state == 7
+        { state = 8 }
+    END { exit state == 8 ? 0 : 1 }
+' "$log"
+
+baselineHashes=$(
+    grep 'stage=base_residual_before' "$log" |
+    sed -E 's/.* primary=([^ ]+) deformation=([^ ]+) history=([^ ]+) boundary=([^ ]+).* time=([^ ]+).*/\1 \2 \3 \4 \5/' |
+    head -n 1
+)
+restoredHashCount=$(
+    grep 'stage=central-restore-after-minus_prepared' "$log" |
+    sed -E 's/.* primary=([^ ]+) deformation=([^ ]+) history=([^ ]+) boundary=([^ ]+).* time=([^ ]+).*/\1 \2 \3 \4 \5/' |
+    grep -Fxc "$baselineHashes"
+)
+if [ "$restoredHashCount" -ne 5 ]
+then
+    echo "FAIL: accepted state was not restored after all five FD trials" >&2
+    exit 1
+fi
+
+echo "PASS: exact failing-before/passing-after Case-B lifecycle regression"

@@ -1,0 +1,63 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+baseCase="$scriptDir/../../../src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d "${TMPDIR:-/tmp}/ArosticaBoundarySmoke.XXXXXX")
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/s0" "$caseDir/0/s0"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/n0" "$caseDir/0/n0"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/s0f" "$caseDir/0/s0f"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/0/n0f" "$caseDir/0/n0f"
+cp "$scriptDir/../../ArosticaElastic/mixedSolidSmoke/case/constant/solidProperties" \
+    "$caseDir/constant/solidProperties"
+cp "$scriptDir/../../ArosticaElastic/runtimeSmoke/case/constant/mechanicalProperties" \
+    "$caseDir/constant/mechanicalProperties"
+cp "$scriptDir/../../ArosticaElastic/mixedSolidSmoke/case/system/fvSchemes" \
+    "$caseDir/system/fvSchemes"
+cp "$scriptDir/../../ArosticaElastic/mixedSolidSmoke/case/petscOptions" \
+    "$caseDir/petscOptions"
+
+# Exercise the production residual with the Phase 2B law.  The two boundary
+# runs below still select different spring-dashpot patch types.
+sed -i.bak 's/type ArosticaHolzapfelOgdenElastic;/type ArosticaHolzapfelOgdenViscoelastic;/' \
+    "$caseDir/constant/mechanicalProperties"
+sed -i.bak '/type ArosticaHolzapfelOgdenViscoelastic;/a\
+        eta eta [1 -1 -1 0 0 0 0] 100;\
+        writeDiagnostics true;' "$caseDir/constant/mechanicalProperties"
+sed -i.bak 's/compressionSwitch paperPiecewise;/compressionSwitch logistic;/' \
+    "$caseDir/constant/mechanicalProperties"
+
+# Rebuild after mechanicalLaw interface changes so this smoke executable and
+# libsolids4FoamModels always share the same virtual-table layout.
+(cd "$scriptDir" && wmake > "$caseDir/log.wmake" 2>&1)
+
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+
+cp "$scriptDir/case/0/D.normal" "$caseDir/0/D"
+(cd "$caseDir" && ArosticaBoundaryConditionSmoke -case .)
+
+cp "$scriptDir/case/0/D.vector" "$caseDir/0/D"
+(cd "$caseDir" && ArosticaBoundaryConditionSmoke -case .)
+
+cp "$scriptDir/case/0/D.invalid" "$caseDir/0/D"
+if (cd "$caseDir" && ArosticaBoundaryConditionSmoke -case .) \
+    > "$caseDir/log.invalid" 2>&1
+then
+    echo "FAIL: invalid coefficient dimensions unexpectedly succeeded" >&2
+    exit 1
+fi
+
+if ! grep -q "springCoefficient has dimensions" "$caseDir/log.invalid"
+then
+    echo "FAIL: invalid coefficient dimensions were not diagnosed" >&2
+    tail -n 30 "$caseDir/log.invalid" >&2
+    exit 1
+fi
+
+echo "PASS: invalid coefficient dimensions rejected"
+
+echo "PASS: Aróstica spring-dashpot runtime smoke tests"

@@ -1,0 +1,18 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    location    "0";
+    object      s0;
+}
+dimensions      [0 0 0 0 0 0 0];
+internalField   uniform (0.7071067811865476 -0.7071067811865476 0);
+boundaryField
+{
+    walls
+    {
+        type    calculated;
+        value   uniform (0.7071067811865476 -0.7071067811865476 0);
+    }
+}

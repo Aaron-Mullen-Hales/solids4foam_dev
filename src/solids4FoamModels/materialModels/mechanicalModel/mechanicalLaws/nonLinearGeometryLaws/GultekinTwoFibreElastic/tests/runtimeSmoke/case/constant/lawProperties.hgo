@@ -1,0 +1,16 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      lawProperties.hgo;
+}
+
+type            HolzapfelGasserOgdenElastic;
+rho             rho [1 -3 0 0 0 0 0] 1000;
+mu              mu [1 -1 -2 0 0 0 0] 1e4;
+fibreAngle      fibreAngle [0 0 0 0 0 0 0] 45;
+k1              k1 [1 -1 -2 0 0 0 0] 5e5;
+k2              k2 [0 0 0 0 0 0 0] 2;
+impKcoeff       1.0;

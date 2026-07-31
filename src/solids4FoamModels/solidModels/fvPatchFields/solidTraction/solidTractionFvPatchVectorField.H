@@ -206,7 +206,9 @@ public:
             }
 
             //- Const access to the useUndeformedArea_ flag
-            const Switch& useUndeformedArea() const
+            //  Derived traction conditions may override this to enforce
+            //  their traction measure without changing the base storage.
+            virtual const Switch& useUndeformedArea() const
             {
                 return useUndeformedArea_;
             }

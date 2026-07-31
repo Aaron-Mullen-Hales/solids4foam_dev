@@ -196,6 +196,14 @@ private:
 
 public:
 
+    // Return codes shared by PETSc residual callbacks
+
+        enum residualReturnCode
+        {
+            residualSuccess = 0,
+            recoverableFunctionDomainError = 2
+        };
+
     //- Runtime type information
     TypeName("foamPetscSnesHelper");
 
@@ -292,6 +300,15 @@ public:
                 }
 
                 return globalCellsPtr_();
+            }
+
+            //- Global cell IDs on the far side of processor patches
+            const PtrList<labelList>& processorNeighbourGlobalIDs
+            (
+                const fvMesh& mesh
+            ) const
+            {
+                return neiProcGlobalIDs(mesh);
             }
 
             //- Const access to the global point object

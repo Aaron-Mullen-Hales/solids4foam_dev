@@ -114,26 +114,37 @@ Foam::fv::leastSquaresS4fGrad<Type>::calcGrad
     //     }
     // }
 
-    // For now, default to extrapolation on all boundaries
-    // We need to revisit this
+    // The legacy scheme remains extrapolated on all physical boundaries.
+    // The distinct Dirichlet-aware alias enables samples only on patches
+    // whose field fixes the value, excluding solid-traction patches.
+    const bool useDirichlet = useDirichletBoundaryValues();
     boolList useBoundaryFaceValues(mesh.boundary().size(), false);
-    // forAll(useBoundaryFaceValues, patchI)
-    // {
-    //     if (vsf.boundaryField()[patchI].fixesValue())
-    //     {
-    //         Info<< "leastSquaresS4f: " << vsf.name()
-    //             << ": use patch values for "
-    //             << mesh.boundary()[patchI].name() << endl;
-    //         useBoundaryFaceValues[patchI] = true;
-    //     }
-    // }
+    if (useDirichlet)
+    {
+        forAll(useBoundaryFaceValues, patchi)
+        {
+            useBoundaryFaceValues[patchi] =
+                vsf.boundaryField()[patchi].fixesValue()
+             && !isA<solidTractionFvPatchVectorField>
+                (
+                    vsf.boundaryField()[patchi]
+                );
+        }
+    }
 
     // Get reference to least square vectors
 #ifdef OPENFOAM_COM
+    word cacheName("leastSquaresVectors");
+    if (useDirichlet)
+    {
+        cacheName += "Dirichlet";
+    }
+    cacheName += vsf.name();
+
     const leastSquaresS4fVectors& lsv =
         leastSquaresS4fVectors::New
         (
-            "leastSquaresVectors" + vsf.name(), mesh, useBoundaryFaceValues
+            cacheName, mesh, useBoundaryFaceValues
         );
 #else
     const leastSquaresS4fVectors& lsv =

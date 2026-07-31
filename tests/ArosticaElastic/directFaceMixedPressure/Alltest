@@ -1,0 +1,76 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+rootDir=$(CDPATH= cd -- "$scriptDir/../../.." && pwd)
+baseCase="$rootDir/src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d /tmp/ArosticaDirectFaceMixedPressure.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$scriptDir/case/0/D" "$caseDir/0/D"
+cp "$rootDir/tests/ArosticaElastic/runtimeSmoke/case/0/s0" "$caseDir/0/s0"
+cp "$rootDir/tests/ArosticaElastic/runtimeSmoke/case/0/n0" "$caseDir/0/n0"
+cp "$rootDir/tests/ArosticaElastic/runtimeSmoke/case/0/s0f" "$caseDir/0/s0f"
+cp "$rootDir/tests/ArosticaElastic/runtimeSmoke/case/0/n0f" "$caseDir/0/n0f"
+cp "$rootDir/tests/ArosticaElastic/runtimeSmoke/case/constant/mechanicalProperties" \
+    "$caseDir/constant/mechanicalProperties"
+cp "$rootDir/tests/ArosticaElastic/mixedSolidSmoke/case/petscOptions" \
+    "$caseDir/petscOptions"
+cp "$rootDir/tests/ArosticaElastic/mixedSolidSmoke/case/system/fvSchemes" \
+    "$caseDir/system/fvSchemes"
+cp "$scriptDir/case/system/blockMeshDict" "$caseDir/system/blockMeshDict"
+
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+
+omissionOption=
+if [ "${S4F_EXPECT_PRESSURE_OMISSION:-0}" = 1 ]
+then
+    omissionOption=-expectOmission
+fi
+
+cp "$scriptDir/case/constant/solidProperties.twoMu" \
+    "$caseDir/constant/solidProperties"
+(
+    cd "$caseDir"
+    ArosticaDirectFaceMixedPressure \
+        -case . \
+        -pressureScaleMode twoMu \
+        $omissionOption
+)
+
+cp "$scriptDir/case/constant/solidProperties.user" \
+    "$caseDir/constant/solidProperties"
+(
+    cd "$caseDir"
+    ArosticaDirectFaceMixedPressure \
+        -case . \
+        -pressureScaleMode user \
+        -expectedPressureScale 1379.25 \
+        $omissionOption
+)
+
+cp "$scriptDir/case/constant/solidProperties.genericDirect" \
+    "$caseDir/constant/solidProperties"
+(
+    cd "$caseDir"
+    ArosticaDirectFaceMixedPressure \
+        -pressureScaleMode twoMu \
+        -expectedSolidType \
+            nonLinearGeometryTotalLagrangianTotalDisplacement \
+        -expectOmission
+)
+
+cp "$scriptDir/case/constant/solidProperties.genericInterpolated" \
+    "$caseDir/constant/solidProperties"
+(
+    cd "$caseDir"
+    ArosticaDirectFaceMixedPressure \
+        -pressureScaleMode twoMu \
+        -expectedSolidType \
+            nonLinearGeometryTotalLagrangianTotalDisplacement \
+        -checkInterpolatedStateOnly
+)
+
+echo "PASS: direct-face pressure completion and generic compatibility paths"

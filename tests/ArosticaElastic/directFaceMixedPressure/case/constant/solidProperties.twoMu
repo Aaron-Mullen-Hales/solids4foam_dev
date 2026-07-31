@@ -1,0 +1,25 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      solidProperties;
+}
+
+solidModel arosticaNonLinearGeometryTotalLagrangianTotalDisplacement;
+
+arosticaNonLinearGeometryTotalLagrangianTotalDisplacementCoeffs
+{
+    solutionAlgorithm       PETScSNES;
+    optionsFile             petscOptions;
+    solvePressure           true;
+    faceStressTreatment     directConstitutive;
+    scaleMixedPetScFields   true;
+    pressureUnknownScale    twoMu;
+    nCorrectors             1;
+    solutionTolerance       1e-6;
+    alternativeTolerance    1e-7;
+    materialTolerance       1e-5;
+    infoFrequency           1;
+}

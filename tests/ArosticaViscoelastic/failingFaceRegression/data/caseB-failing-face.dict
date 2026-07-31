@@ -1,0 +1,193 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object caseB-failing-face;
+}
+
+provenance
+{
+    evidenceArchive arostica_actual_state_mffd_fd_20260730T154802Z;
+    lifecycleState pre-step;
+    timeValue 0;
+    timeIndex 0;
+    deltaT 0.001;
+    ddtScheme backward;
+    chamberFollowerPressure 0.016071182;
+    perturbationMode 6;
+    perturbationName fibreDirection;
+    perturbationSign minus;
+    epsilon 0.0001;
+}
+
+callbackSequence
+(
+    baseResidual
+    mffdAction
+    repeatedMffdAction
+    centralFdPlus
+    fullDiagnosticAndBoundaryStateRestoration
+    centralFdMinus
+);
+
+vector
+{
+    totalEntries 70500;
+    displacementEntries 52875;
+    pressureEntries 17625;
+    pressureEntriesExactlyZero true;
+    L1 203.584299138;
+    L2 1;
+    Linf 0.0075307956009;
+    minimum -0.00752872987903;
+    maximum 0.0075307956009;
+    normalisation 132.759180474;
+}
+
+faceIdentity
+{
+    globalFace 38160;
+    kind boundary;
+    patch base;
+    patchIndex 2;
+    patchLocalFace 51;
+    owner 3826;
+}
+
+failureState
+{
+    stage centralFdMinusAfterContaminatedRestore;
+    lawOwnedF
+    (
+        2.62913004283 -0.151482832046 -0.317882762759
+       -3.52265633777 1.32761065772 0.687559163572
+        1.78866583347 -0.16636945584 0.65090338162
+    );
+    independentlyReconstructedF
+    (
+        2.62913004283 -0.151482832046 -0.317882762759
+       -3.52265633777 1.32761065772 0.687559163572
+        1.78866583347 -0.16636945584 0.65090338162
+    );
+    componentDifference (0 0 0 0 0 0 0 0 0);
+    J 2.60762581678;
+    C
+    (
+        22.52075792 -5.37256352362 -2.09354112722
+        1.81317590274 0.85267421313 0.997462266476
+    );
+    Cinv
+    (
+        0.159053967 0.525584119642 -0.115459008484
+        2.65903772421 -1.16992989921 1.76031809169
+    );
+    eigenvalues (0.282735594101 1.00004604932 24.0486144458);
+    conditionEstimate 85.0551018301;
+    I1bar 12.6653005637;
+    I4f 1.7730099463;
+    I4s 20.8406985847;
+    I8fs 5.49700166633;
+    fibreSwitchArgument -77.30099463;
+    fibreSwitchValue 1;
+    fibreSwitchDerivative 0;
+    sheetSwitchArgument -1984.06985847;
+    sheetSwitchValue 1;
+    sheetSwitchDerivative 0;
+    fibreExponentArgument 9.57624618717;
+    fibreExponent 14418.1943877;
+    sheetExponentArgument 4377.42492208;
+    sheetExponent overflow;
+    fibreSheetExponentArgument 345.561924428;
+    fibreSheetExponent 1.19024655994e150;
+}
+
+restoredMinusState
+{
+    stage centralFdMinusAfterAcceptedSigmaRestore;
+    lawOwnedF
+    (
+        1.00002287526 4.50177262459e-05 9.57448915173e-05
+       -6.14547096217e-06 0.999959033713 -1.19633790781e-05
+        4.6951418421e-06 -1.04149714198e-06 1.00002455105
+    );
+    independentlyReconstructedF
+    (
+        1.00002287526 4.50177262459e-05 9.57448915173e-05
+       -6.14547096217e-06 0.999959033713 -1.19633790781e-05
+        4.6951418421e-06 -1.04149714198e-06 1.00002455105
+    );
+    componentDifference (0 0 0 0 0 0 0 0 0);
+    J 1.0000064584563912;
+    I1bar 3.0000000173490133;
+    I4f 0.9999625226126048;
+    I4s 1.0000543450277763;
+    I8fs 3.488341896545899e-05;
+}
+
+directions
+{
+    f0f (0.424931835279 0.833110915283 -0.354060924422);
+    s0f (0.900837765499 -0.350721196652 0.255902251788);
+    n0f (-0.089018288109 0.427692465511 0.899530377101);
+    magnitudes (1 1 1);
+    dotProducts (-6.69359740136e-18 -2.67257636708e-18 -7.42982293424e-17);
+    handedness -1;
+}
+
+histories
+{
+    EOld (0 0 0 0 0 0);
+    EOldOld (0 0 0 0 0 0);
+    EfOld (0 0 0 0 0 0);
+    EfOldOld (0 0 0 0 0 0);
+    currentCoefficient 1000;
+    oldCoefficient -1000;
+    oldOldCoefficient 0;
+    explicitAcceptedHistory 0;
+    secondHistory 0;
+}
+
+activeState
+{
+    activeStressEnabled false;
+    activeCauchyStress (0 0 0 0 0 0);
+}
+
+materialParameters
+{
+    a 59;
+    b 8.023;
+    af 18472;
+    bf 16.026;
+    as 2481;
+    bs 11.12;
+    afs 216;
+    bfs 11.436;
+    eta 1000;
+    compressionSwitch logistic;
+    compressionSwitchK 100;
+}
+
+expected
+{
+    firstInvalidOperation expSheetInvariant;
+    firstInvalidSourceLocation ArosticaHolzapfelOgdenElastic.C:479;
+    failureSignal SIGILL;
+    restoredResult finite;
+    finitePassiveCauchyStress
+    (
+       -0.0065764237979 -0.2803337724705 0.1394199297950
+       -0.4719433526734 0.1932491592290 -0.0763997674590
+    );
+    finiteViscousCauchyStress
+    (
+        22.8878174966884 19.4330809703914 50.2254093631353
+       -40.9608966004030 -6.5003705567030 24.5575387860516
+    );
+    finiteCauchyStress
+    (
+        22.8812410728905 19.1527471979209 50.3648292929303
+       -41.4328399530764 -6.3071213974740 24.4811390185925
+    );
+}

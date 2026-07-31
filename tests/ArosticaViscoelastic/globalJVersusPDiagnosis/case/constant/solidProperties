@@ -1,0 +1,36 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object solidProperties;
+}
+
+solidModel arosticaNonLinearGeometryTotalLagrangianTotalDisplacement;
+
+arosticaNonLinearGeometryTotalLagrangianTotalDisplacementCoeffs
+{
+    solutionAlgorithm PETScSNES;
+    optionsFile petscOptions;
+    solvePressure true;
+    predictor no;
+    pressureUnknownScale twoMu;
+    pressureScaleFactor 10;
+    pressureScaleByTwoMu yes;
+    faceStressTreatment directConstitutive;
+    preconditionerMaterialTangent false;
+    preconditionerBoundaryTangent false;
+    preconditionerViscousTangent false;
+    preconditionerPassiveNominalTangent false;
+    preconditionerLeastSquaresPressureCoupling true;
+    preconditionerLeastSquaresPressureStabilisation true;
+    stabilisation
+    {
+        momentum
+        {
+            type RhieChow;
+            scaleFactor 10;
+            scaleFactorJacobian 10;
+        }
+    }
+}

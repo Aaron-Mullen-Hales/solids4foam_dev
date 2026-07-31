@@ -1,0 +1,63 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+caseDir=$(mktemp -d "${TMPDIR:-/tmp}/GTF_bulkModulusSmoke.XXXXXX")
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$scriptDir/case/." "$caseDir"
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+
+GultekinTwoFibreLawSmoke \
+    -case "$caseDir" \
+    -dict lawProperties.gtf \
+    -compareDict lawProperties.gtfStiff \
+    -compareBulkDict lawProperties.gtfBulk
+
+GultekinTwoFibreLawSmoke \
+    -case "$caseDir" \
+    -dict lawProperties.gtfOneFamily
+
+expectFailure()
+{
+    dictName=$1
+    expectedText=$2
+    logFile="$caseDir/log.$dictName"
+
+    if GultekinTwoFibreLawSmoke \
+        -case "$caseDir" \
+        -dict "$dictName" > "$logFile" 2>&1
+    then
+        echo "FAIL: $dictName unexpectedly succeeded" >&2
+        return 1
+    fi
+
+    if ! grep -q "$expectedText" "$logFile"
+    then
+        echo "FAIL: $dictName did not report: $expectedText" >&2
+        tail -n 30 "$logFile" >&2
+        return 1
+    fi
+
+    echo "PASS: expected construction failure for $dictName"
+}
+
+expectFailure lawProperties.gtfMissingBulk \
+    "Missing required entry bulkModulus"
+expectFailure lawProperties.gtfWrongBulkDimensions \
+    "bulkModulus has dimensions"
+expectFailure lawProperties.gtfZeroBulk \
+    "bulkModulus must be finite and positive"
+expectFailure lawProperties.gtfNegativeBulk \
+    "bulkModulus must be finite and positive"
+expectFailure lawProperties.gtfNaNBulk \
+    "expected scalar value"
+expectFailure lawProperties.gtfInfBulk \
+    "expected scalar value"
+
+GultekinTwoFibreLawSmoke \
+    -case "$caseDir" \
+    -dict lawProperties.hgo
+
+echo "PASS: all compiled GultekinTwoFibreElastic bulk-modulus tests"

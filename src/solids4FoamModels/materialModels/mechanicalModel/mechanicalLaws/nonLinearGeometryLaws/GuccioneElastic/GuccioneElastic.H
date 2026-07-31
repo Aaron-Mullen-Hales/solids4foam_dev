@@ -70,6 +70,39 @@ class GuccioneElastic
         //- Pressure-displacement formulation
         const Switch pressureDisplacement_;
 
+        //- Evaluate passive Guccione law using Fbar = J^(-1/3) F
+        const Switch useIsochoricSplit_;
+
+        //- Enable optional apex regularisation experiment
+        const Switch apexRegularisationEnabled_;
+
+        //- Apex cellZone name
+        const word apexRegularisationZoneName_;
+
+        //- Use isotropic Guccione coefficients in the selected apex zone
+        const Switch apexIsotropisePassive_;
+
+        //- Isotropic Guccione b coefficient for the apex zone
+        const scalar apexIsotropicB_;
+
+        //- Preserve baseline implicit stiffness and momentum-stab coefficient
+        const Switch preserveBaselineImpK_;
+
+        //- Write apex diagnostic fields
+        const Switch writeApexDiagnosticFields_;
+
+        //- Internal apex mask used by Guccione coefficient selection
+        mutable autoPtr<volScalarField> apexRegularisationMaskPtr_;
+
+        //- Interpolated apex mask for surface helper paths
+        mutable autoPtr<surfaceScalarField> apexRegularisationMaskfPtr_;
+
+        //- Passive isotropic diagnostic mask
+        mutable autoPtr<volScalarField> apexPassiveIsotropicMaskPtr_;
+
+        //- Baseline implicit-stiffness preservation diagnostic mask
+        mutable autoPtr<volScalarField> apexBaselineImpKMaskPtr_;
+
         //- Effective shear modulus for coupledPressureDisplacementSolid
         volScalarField muEff_;
 
@@ -127,7 +160,8 @@ class GuccioneElastic
         (
             const Switch& uniformFibreField,
             const fvMesh& mesh,
-            const dictionary& dict
+            const dictionary& dict,
+            const volVectorField& f0
         ) const;
 
         //- Calculate stress given gradD and pressure
@@ -137,6 +171,44 @@ class GuccioneElastic
             const surfaceTensorField& gradD
         );
 
+        //- True if passive stress coefficients should be changed
+        bool useApexPassiveIsotropisation() const;
+
+        //- True if implicit/numerical stiffness should use apex coefficients
+        bool useApexImplicitStiffness() const;
+
+        //- Create apex regularisation masks
+        void makeApexRegularisationMasks() const;
+
+        //- Return the apex regularisation mask
+        const volScalarField& apexRegularisationMask() const;
+
+        //- Return the apex regularisation surface mask
+        const surfaceScalarField& apexRegularisationMaskf() const;
+
+        //- Write apex diagnostic fields
+        void writeApexDiagnosticFields() const;
+
+        //- Report physical and implicit apex coefficients
+        void reportApexRegularisationCoefficients() const;
+
+        //- Validate assembled tangent columns for apex debug tests
+        void validateMaterialTangentColumns
+        (
+            const List<mat66>& matTan,
+            const word& context
+        ) const;
+
+        //- Optional debug validation of apex tangent column assembly
+        void validateApexRegularisationTangent() const;
+
+        //- Return a cell Guccione coefficient for implicit stiffness paths
+        scalar implicitCoefficient
+        (
+            const scalar baseline,
+            const label cellI
+        ) const;
+
         //- Calculate deviatoric Cauchy stress from a deformation gradient
         void calcDevCauchy
         (
@@ -145,6 +217,23 @@ class GuccioneElastic
             const tensor& R,
             symmTensor& devCauchy
         ) const;
+
+        //- Calculate deviatoric Cauchy stress with explicit switches
+        void calcDevCauchy
+        (
+            const tensor& F,
+            const symmTensor& f0f0,
+            const tensor& R,
+            const Switch& useIsochoricSplit,
+            const Switch& useLocalCoordSys,
+            const scalar cf,
+            const scalar ct,
+            const scalar cfs,
+            symmTensor& devCauchy
+        ) const;
+
+        //- Optional debug validation of the isochoric split algebra
+        void validateIsochoricSplitImplementation() const;
 
         //- Calculate initial shear modulus by F perturbation
         void calcInitialShearModulus();
@@ -210,6 +299,18 @@ public:
 
         //- Update total accumulated fields
         virtual void updateTotalFields();
+
+        //- Return the cell fibre dyad used by this law
+        const volSymmTensorField& fibreDyad() const
+        {
+            return f0f0_;
+        }
+
+        //- Return the face fibre dyad used by this law
+        const surfaceSymmTensorField& faceFibreDyad() const
+        {
+            return f0f0f_;
+        }
 };
 
 

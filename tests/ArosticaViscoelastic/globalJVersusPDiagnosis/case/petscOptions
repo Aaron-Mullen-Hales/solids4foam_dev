@@ -1,0 +1,7 @@
+-snes_type newtonls
+-snes_mf_operator
+-ksp_type gmres
+-ksp_rtol 1e-10
+-ksp_atol 1e-14
+-ksp_max_it 200
+-pc_type lu

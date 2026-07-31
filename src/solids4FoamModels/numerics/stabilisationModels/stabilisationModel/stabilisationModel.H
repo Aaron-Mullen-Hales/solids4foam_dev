@@ -362,6 +362,14 @@ public:
                 std::abort();
             }
 
+            //- Project an extensive cell-vector stabilisation force.
+            //  The default is a no-op.
+            virtual void projectExtensiveVectorForce
+            (
+                vectorField& stabilisationForce
+            ) const
+            {}
+
             //- Return true if this model is compatible with high-order
             //  residual calculation. Defaults to false; overridden by
             //  models that are known to be compatible (e.g. alphaStab).

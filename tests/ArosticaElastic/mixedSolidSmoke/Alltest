@@ -1,0 +1,25 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+baseCase="$scriptDir/../../../src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d /tmp/ArosticaMixedSolidSmoke.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$scriptDir/../runtimeSmoke/case/0/s0" "$caseDir/0/s0"
+cp "$scriptDir/../runtimeSmoke/case/0/n0" "$caseDir/0/n0"
+cp "$scriptDir/../runtimeSmoke/case/0/s0f" "$caseDir/0/s0f"
+cp "$scriptDir/../runtimeSmoke/case/0/n0f" "$caseDir/0/n0f"
+cp "$scriptDir/case/constant/solidProperties" \
+    "$caseDir/constant/solidProperties"
+cp "$scriptDir/../runtimeSmoke/case/constant/mechanicalProperties" \
+    "$caseDir/constant/mechanicalProperties"
+cp "$scriptDir/case/system/fvSchemes" "$caseDir/system/fvSchemes"
+cp "$scriptDir/case/petscOptions" "$caseDir/petscOptions"
+
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+(cd "$caseDir" && ArosticaMixedSolidSmoke -case .)
+
+echo "PASS: Aróstica mixed solid runtime smoke test"

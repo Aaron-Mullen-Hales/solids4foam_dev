@@ -1,0 +1,5 @@
+stabilisationModelAudit.C
+
+SOLIDS4FOAM_ROOT := ../../..
+
+EXE = $(SOLIDS4FOAM_ROOT)/platforms/$(WM_OPTIONS)/bin/stabilisationModelAudit

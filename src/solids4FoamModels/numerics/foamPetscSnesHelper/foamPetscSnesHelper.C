@@ -54,8 +54,28 @@ PetscErrorCode formResidualFoamPetscSnesHelper
     CHKERRQ(VecGetArray(f, &ff));
 
     // Compute the residual
-    if (user->solMod_.formResidual(f, x) != 0)
+    const Foam::label residualStatus = user->solMod_.formResidual(f, x);
+
+    // Always restore PETSc arrays before returning or calling PETSc/SNES
+    // error-handling functions.
+    CHKERRQ(VecRestoreArrayRead(x, &xx));
+    CHKERRQ(VecRestoreArray(f, &ff));
+
+    if (residualStatus != Foam::foamPetscSnesHelper::residualSuccess)
     {
+        if
+        (
+            residualStatus
+         == Foam::foamPetscSnesHelper::recoverableFunctionDomainError
+        )
+        {
+            // SNESComputeFunction flags the residual vector with Inf. A
+            // compatible line search (for example, bt) can then reduce the
+            // candidate step and try another admissible state.
+            PetscCall(SNESSetFunctionDomainError(snes));
+            PetscFunctionReturn(0);
+        }
+
         if (user->solMod_.stopOnPetscError())
         {
             Foam::FatalError
@@ -76,10 +96,6 @@ PetscErrorCode formResidualFoamPetscSnesHelper
         // Exit without an error code so SNES can exit "softly"
         PetscFunctionReturn(0);
     }
-
-    // Restore the solution and residual vectors
-    CHKERRQ(VecRestoreArrayRead(x, &xx));
-    CHKERRQ(VecRestoreArray(f, &ff));
 
     PetscFunctionReturn(0);
 }

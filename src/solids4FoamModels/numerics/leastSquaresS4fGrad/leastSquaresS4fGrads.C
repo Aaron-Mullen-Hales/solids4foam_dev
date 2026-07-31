@@ -25,6 +25,7 @@ License
 #ifdef OPENFOAM_NOT_EXTEND
 
 makeFvGradScheme(leastSquaresS4fGrad)
+makeFvGradScheme(leastSquaresS4fDirichletGrad)
 
 #else
 

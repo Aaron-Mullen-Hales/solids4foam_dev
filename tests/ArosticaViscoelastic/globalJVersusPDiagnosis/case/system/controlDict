@@ -1,0 +1,17 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object controlDict;
+}
+
+application solids4Foam;
+startFrom startTime;
+startTime 0;
+stopAt endTime;
+endTime 0.001;
+deltaT 0.001;
+writeControl timeStep;
+writeInterval 1;
+runTimeModifiable false;

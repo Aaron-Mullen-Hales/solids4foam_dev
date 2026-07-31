@@ -62,6 +62,14 @@ class leastSquaresS4fGrad
 
     // Private Member Functions
 
+        //- Boundary samples are disabled by the legacy scheme.  The
+        //  Dirichlet-aware runtime alias overrides this hook without
+        //  changing the legacy default.
+        virtual bool useDirichletBoundaryValues() const
+        {
+            return false;
+        }
+
         //- No copy construct
         leastSquaresS4fGrad(const leastSquaresS4fGrad&) = delete;
 
@@ -117,6 +125,44 @@ public:
             const GeometricField<Type, fvPatchField, volMesh>& vsf,
             const word& name
         ) const;
+};
+
+
+/*---------------------------------------------------------------------------*\
+                Class leastSquaresS4fDirichletGrad Declaration
+\*---------------------------------------------------------------------------*/
+
+template<class Type>
+class leastSquaresS4fDirichletGrad
+:
+    public leastSquaresS4fGrad<Type>
+{
+    // Private Member Functions
+
+        leastSquaresS4fDirichletGrad
+        (
+            const leastSquaresS4fDirichletGrad&
+        ) = delete;
+
+        void operator=(const leastSquaresS4fDirichletGrad&) = delete;
+
+
+protected:
+
+    virtual bool useDirichletBoundaryValues() const override
+    {
+        return true;
+    }
+
+
+public:
+
+    TypeName("leastSquaresS4fDirichlet");
+
+    leastSquaresS4fDirichletGrad(const fvMesh& mesh, Istream& schemeData)
+    :
+        leastSquaresS4fGrad<Type>(mesh, schemeData)
+    {}
 };
 
 

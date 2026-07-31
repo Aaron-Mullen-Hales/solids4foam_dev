@@ -83,6 +83,27 @@ class electroMechanicalLaw
         //- Flag: true once useFieldTa_ has been determined
         mutable bool fieldTaChecked_;
 
+        //- Enable optional apex regularisation experiment
+        const Switch apexRegularisationEnabled_;
+
+        //- Apex cellZone name
+        const word apexRegularisationZoneName_;
+
+        //- Disable active stress inside the selected apex zone
+        const Switch apexDisableActiveStress_;
+
+        //- Write apex diagnostic fields
+        const Switch writeApexDiagnosticFields_;
+
+        //- Apex regularisation mask: 1 in selected cells, 0 elsewhere
+        mutable autoPtr<volScalarField> apexRegularisationMaskPtr_;
+
+        //- Active stress mask: 0 where active stress is disabled, 1 elsewhere
+        mutable autoPtr<volScalarField> apexActiveStressMaskPtr_;
+
+        //- Interpolated active stress mask for surface helper paths
+        mutable autoPtr<surfaceScalarField> apexActiveStressMaskfPtr_;
+
     // Private Member Functions
 
         //- Check whether a field-based active tension should be used
@@ -90,6 +111,21 @@ class electroMechanicalLaw
 
         //- Return the current ramped constant active tension
         dimensionedScalar activeTension() const;
+
+        //- Create apex regularisation masks
+        void makeApexRegularisationMasks() const;
+
+        //- Return the apex regularisation mask
+        const volScalarField& apexRegularisationMask() const;
+
+        //- Return the active stress mask
+        const volScalarField& apexActiveStressMask() const;
+
+        //- Return the surface active stress mask
+        const surfaceScalarField& apexActiveStressMaskf() const;
+
+        //- Write apex diagnostic fields
+        void writeApexDiagnosticFields() const;
 
         //- Disallow default bitwise copy construct
         electroMechanicalLaw(const electroMechanicalLaw&);

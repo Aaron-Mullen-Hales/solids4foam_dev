@@ -525,6 +525,24 @@ public:
         //  The size of this field should be mesh.nFaces()
         virtual void materialTangentField(List<mat66>& matTan) const;
 
+        //- Populate the passive-only material tangent field
+        //  Laws with an additional rate-dependent contribution can override
+        //  materialTangentField() while retaining the passive tangent for an
+        //  optional solid-model preconditioner.
+        virtual void passiveMaterialTangentField(List<mat66>& matTan) const;
+
+        //- Populate an optional passive nominal-force tangent.  Nine output
+        //  tensors are returned per face, one for each flattened
+        //  deformation-gradient component.  Laws without a compatible
+        //  implementation return false.
+        virtual bool passiveNominalTangentField(List<tensor>& tangent) const;
+
+        //- Populate an optional current-trial viscous nominal-force tangent.
+        //  Nine output tensors are returned per face, one for each flattened
+        //  deformation-gradient component. Laws without viscosity return
+        //  false.
+        virtual bool viscousNominalTangentField(List<tensor>& tangent) const;
+
         //- Return bulk modulus
         virtual tmp<volScalarField> bulkModulus() const
         {

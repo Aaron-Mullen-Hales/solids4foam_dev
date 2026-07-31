@@ -1,0 +1,37 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class volVectorField;
+    object D;
+}
+
+dimensions [0 1 0 0 0 0 0];
+internalField uniform (0 0 0);
+boundaryField
+{
+    base
+    {
+        type arosticaVectorSpringDashpotTraction;
+        springCoefficient alpha [1 -2 -2 0 0 0 0] 1e5;
+        dashpotCoefficient beta [1 -2 -1 0 0 0 0] 5e3;
+        useUndeformedArea true;
+        value uniform (0 0 0);
+    }
+    endocardium
+    {
+        type solidTraction;
+        traction uniform (0 0 0);
+        pressure uniform 1;
+        useUndeformedArea true;
+        value uniform (0 0 0);
+    }
+    epicardium
+    {
+        type arosticaNormalSpringDashpotTraction;
+        springCoefficient alpha [1 -2 -2 0 0 0 0] 1e6;
+        dashpotCoefficient beta [1 -2 -1 0 0 0 0] 5e3;
+        useUndeformedArea true;
+        value uniform (0 0 0);
+    }
+}

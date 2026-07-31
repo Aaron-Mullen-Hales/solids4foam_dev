@@ -1,0 +1,28 @@
+#!/bin/sh
+
+set -eu
+
+scriptDir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+baseCase="$scriptDir/../../../src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d /tmp/ArosticaElasticSmoke.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$scriptDir/case/0/s0" "$caseDir/0/s0"
+cp "$scriptDir/case/0/n0" "$caseDir/0/n0"
+cp "$scriptDir/case/0/s0f" "$caseDir/0/s0f"
+cp "$scriptDir/case/0/n0f" "$caseDir/0/n0f"
+cp "$scriptDir/case/constant/lawProperties.arostica" \
+    "$caseDir/constant/lawProperties.arostica"
+cp "$scriptDir/case/constant/solidProperties" "$caseDir/constant/solidProperties"
+cp "$scriptDir/case/constant/mechanicalProperties" \
+    "$caseDir/constant/mechanicalProperties"
+
+# Rebuild after mechanicalLaw interface changes so this smoke executable and
+# libsolids4FoamModels always share the same virtual-table layout.
+(cd "$scriptDir" && wmake > "$caseDir/log.wmake" 2>&1)
+
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+ArosticaHolzapfelOgdenElasticSmoke -case "$caseDir"
+
+echo "PASS: Aróstica elastic runtime smoke test"

@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -eu
+
+sourceRoot=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+baseCase="$sourceRoot/../../../src/solids4FoamModels/materialModels/mechanicalModel/mechanicalLaws/nonLinearGeometryLaws/GultekinTwoFibreElastic/tests/runtimeSmoke/case"
+caseDir=$(mktemp -d /tmp/ArosticaDdtCost.XXXXXX)
+trap 'rm -rf "$caseDir"' EXIT HUP INT TERM
+
+cp -R "$baseCase/." "$caseDir"
+cp "$sourceRoot/../../ArosticaElastic/runtimeSmoke/case/0/s0" "$caseDir/0/s0"
+cp "$sourceRoot/../../ArosticaElastic/runtimeSmoke/case/0/n0" "$caseDir/0/n0"
+cp "$sourceRoot/../../ArosticaElastic/runtimeSmoke/case/0/s0f" "$caseDir/0/s0f"
+cp "$sourceRoot/../../ArosticaElastic/runtimeSmoke/case/0/n0f" "$caseDir/0/n0f"
+cp "$sourceRoot/../../ArosticaElastic/runtimeSmoke/case/constant/mechanicalProperties" \
+    "$caseDir/constant/mechanicalProperties"
+cp "$sourceRoot/../../ArosticaElastic/mixedSolidSmoke/case/constant/solidProperties" \
+    "$caseDir/constant/solidProperties"
+cp "$sourceRoot/../../ArosticaElastic/mixedSolidSmoke/case/system/fvSchemes" \
+    "$caseDir/system/fvSchemes"
+cp "$sourceRoot/../../ArosticaElastic/mixedSolidSmoke/case/petscOptions" \
+    "$caseDir/petscOptions"
+blockMesh -case "$caseDir" > "$caseDir/log.blockMesh" 2>&1
+(cd "$caseDir" && ArosticaDdtCostSmoke -case .)
+
+echo "PASS: Aróstica fvc::ddt(D) cost smoke test"

@@ -1,0 +1,25 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      lawProperties.gtfInfBulk;
+}
+
+type                 GultekinTwoFibreElastic;
+rho                  rho [1 -3 0 0 0 0 0] 1000;
+mu                   mu  [1 -1 -2 0 0 0 0] 1e4;
+k1                   k1  [1 -1 -2 0 0 0 0] 5e5;
+k2                   k2  [0 0 0 0 0 0 0] 2;
+bulkModulus          K   [1 -1 -2 0 0 0 0] inf;
+fibreField1          f0;
+fibreField2          f1;
+faceFibreField1      f0f;
+faceFibreField2      f1f;
+anisotropicSplit     false;
+fibresTensionOnly    false;
+useSecondFibreFamily true;
+implicitShearModulus implicitShearModulus [1 -1 -2 0 0 0 0] 2.01e6;
+impKcoeff            1.0;
+writeDiagnostics     false;

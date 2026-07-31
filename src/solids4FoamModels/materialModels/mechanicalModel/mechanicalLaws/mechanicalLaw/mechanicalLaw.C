@@ -1651,6 +1651,35 @@ void Foam::mechanicalLaw::materialTangentField(List<mat66>& matTan) const
 }
 
 
+void Foam::mechanicalLaw::passiveMaterialTangentField
+(
+    List<mat66>& matTan
+) const
+{
+    materialTangentField(matTan);
+}
+
+
+bool Foam::mechanicalLaw::passiveNominalTangentField
+(
+    List<tensor>& tangent
+) const
+{
+    tangent.clear();
+    return false;
+}
+
+
+bool Foam::mechanicalLaw::viscousNominalTangentField
+(
+    List<tensor>& tangent
+) const
+{
+    tangent.clear();
+    return false;
+}
+
+
 void Foam::mechanicalLaw::correct(surfaceSymmTensorField&)
 {
     notImplemented
