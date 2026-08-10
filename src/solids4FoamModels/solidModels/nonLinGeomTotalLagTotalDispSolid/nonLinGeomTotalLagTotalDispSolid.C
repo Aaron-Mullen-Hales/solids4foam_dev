@@ -75,7 +75,14 @@ void nonLinGeomTotalLagTotalDispSolid::predict()
     J_ = det(F_);
 
     // Calculate the stress using run-time selectable mechanical law
-    mechanical().correct(sigma());
+    if (solvePressure())
+    {
+        mechanical().correctStressComponents(sigma(), sigmaPreserved_);
+    }
+    else
+    {
+        mechanical().correct(sigma());
+    }
 
     if (solvePressure())
     {
@@ -84,7 +91,7 @@ void nonLinGeomTotalLagTotalDispSolid::predict()
         // p() = p().oldTime() + dpdt*runTime().deltaT()
         //     + 0.5*sqr(runTime().deltaT())*d2pdt2;
 
-        sigma() = dev(sigma()) - p()*I;
+        sigma() = dev(sigma()) + sigmaPreserved_ - p()*I;
     }
 }
 
@@ -489,6 +496,19 @@ nonLinGeomTotalLagTotalDispSolid::nonLinGeomTotalLagTotalDispSolid
         ),
         det(F_)
     ),
+    sigmaPreserved_
+    (
+        IOobject
+        (
+            "sigmaPreserved",
+            runTime.timeName(),
+            mesh(),
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        mesh(),
+        dimensionedSymmTensor("zero", dimPressure, symmTensor::zero)
+    ),
     A_
     (
         IOobject
@@ -857,7 +877,14 @@ void nonLinGeomTotalLagTotalDispSolid::unpackSolution(const Vec x)
     J_ = det(F_);
 
     // Calculate the stress using run-time selectable mechanical law
-    mechanical().correct(sigma());
+    if (solvePressure())
+    {
+        mechanical().correctStressComponents(sigma(), sigmaPreserved_);
+    }
+    else
+    {
+        mechanical().correct(sigma());
+    }
 
     if (solvePressure())
     {
@@ -876,7 +903,7 @@ void nonLinGeomTotalLagTotalDispSolid::unpackSolution(const Vec x)
         p.correctBoundaryConditions();
 
         // Replace the pressure component of stress
-        sigma() = dev(sigma()) - p*I;
+        sigma() = dev(sigma()) + sigmaPreserved_ - p*I;
     }
 }
 

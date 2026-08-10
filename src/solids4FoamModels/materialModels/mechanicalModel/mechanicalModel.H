@@ -166,8 +166,22 @@ public:
             //- Calculate the stress volField
             void correct(volSymmTensorField& sigma);
 
+            //- Calculate the projected and preserved stress volFields
+            void correctStressComponents
+            (
+                volSymmTensorField& sigmaToProject,
+                volSymmTensorField& sigmaPreserved
+            );
+
             //- Calculate the stress surfaceField
             void correct(surfaceSymmTensorField& sigma);
+
+            //- Calculate the projected and preserved stress surfaceFields
+            void correctStressComponents
+            (
+                surfaceSymmTensorField& sigmaToProject,
+                surfaceSymmTensorField& sigmaPreserved
+            );
 
             //- Calculate the stress pointField given the displacement gradient
             void correct

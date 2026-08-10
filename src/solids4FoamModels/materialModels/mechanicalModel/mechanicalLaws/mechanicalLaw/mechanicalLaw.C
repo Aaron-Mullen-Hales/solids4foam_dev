@@ -1662,6 +1662,19 @@ void Foam::mechanicalLaw::materialTangentField(List<mat66>& matTan) const
 }
 
 
+void Foam::mechanicalLaw::correctStressComponents
+(
+    volSymmTensorField& sigmaToProject,
+    volSymmTensorField& sigmaPreserved
+)
+{
+    // Existing laws provide a single passive stress by default
+    correct(sigmaToProject);
+    sigmaPreserved =
+        dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+}
+
+
 void Foam::mechanicalLaw::correct(surfaceSymmTensorField&)
 {
     notImplemented
@@ -1670,6 +1683,19 @@ void Foam::mechanicalLaw::correct(surfaceSymmTensorField&)
         "The correct(surfaceSymmTensorField&) function is not implemented\n"
         " for the " + type() + " mechanical law"
     );
+}
+
+
+void Foam::mechanicalLaw::correctStressComponents
+(
+    surfaceSymmTensorField& sigmaToProject,
+    surfaceSymmTensorField& sigmaPreserved
+)
+{
+    // Existing laws provide a single passive stress by default
+    correct(sigmaToProject);
+    sigmaPreserved =
+        dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
 }
 
 

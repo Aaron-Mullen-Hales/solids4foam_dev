@@ -69,6 +69,9 @@ nonLinGeomLaws = $(mechanicalLaws)/nonLinearGeometryLaws
 $(nonLinGeomLaws)/electroMechanicalLaw/electroMechanicalLaw.C
 $(nonLinGeomLaws)/GentElastic/GentElastic.C
 $(nonLinGeomLaws)/GuccioneElastic/GuccioneElastic.C
+$(nonLinGeomLaws)/GultekinTwoFibreElastic/GultekinTwoFibreElastic.C
+$(nonLinGeomLaws)/ArosticaHolzapfelOgdenElastic/ArosticaHolzapfelOgdenElastic.C
+$(nonLinGeomLaws)/ArosticaHolzapfelOgdenViscoelastic/ArosticaHolzapfelOgdenViscoelastic.C
 $(nonLinGeomLaws)/isotropicFungElastic/isotropicFungElastic.C
 $(nonLinGeomLaws)/OgdenElastic/OgdenElastic.C
 $(nonLinGeomLaws)/MooneyRivlinElastic/MooneyRivlinElastic.C

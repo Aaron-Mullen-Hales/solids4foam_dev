@@ -324,6 +324,25 @@ void Foam::electroMechanicalLaw::correct(volSymmTensorField& sigma)
 }
 
 
+void Foam::electroMechanicalLaw::correctStressComponents
+(
+    volSymmTensorField& sigmaToProject,
+    volSymmTensorField& sigmaPreserved
+)
+{
+    passiveMechLawPtr_->correctStressComponents
+    (
+        sigmaToProject, sigmaPreserved
+    );
+
+    if (hasActiveStress())
+    {
+        const tmp<volSymmTensorField> tSigmaActive = activeCauchyStress();
+        sigmaPreserved += tSigmaActive();
+    }
+}
+
+
 void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
 {
     // Calculate passive stress
@@ -333,6 +352,26 @@ void Foam::electroMechanicalLaw::correct(surfaceSymmTensorField& sigma)
     {
         const tmp<surfaceSymmTensorField> tSigmaActive = activeCauchyStressf();
         sigma += tSigmaActive();
+    }
+}
+
+
+void Foam::electroMechanicalLaw::correctStressComponents
+(
+    surfaceSymmTensorField& sigmaToProject,
+    surfaceSymmTensorField& sigmaPreserved
+)
+{
+    passiveMechLawPtr_->correctStressComponents
+    (
+        sigmaToProject, sigmaPreserved
+    );
+
+    if (hasActiveStress())
+    {
+        const tmp<surfaceSymmTensorField> tSigmaActive =
+            activeCauchyStressf();
+        sigmaPreserved += tSigmaActive();
     }
 }
 

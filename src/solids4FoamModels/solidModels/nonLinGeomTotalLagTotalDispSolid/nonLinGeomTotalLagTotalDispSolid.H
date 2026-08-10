@@ -73,6 +73,9 @@ class nonLinGeomTotalLagTotalDispSolid
         //- Jacobian of total deformation gradient
         volScalarField J_;
 
+        //- Constitutive stress retained without a deviatoric projection
+        volSymmTensorField sigmaPreserved_;
+
         //- Acceleration
         volVectorField A_;
 

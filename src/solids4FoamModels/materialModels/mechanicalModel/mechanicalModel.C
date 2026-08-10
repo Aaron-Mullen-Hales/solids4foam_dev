@@ -559,6 +559,55 @@ void Foam::mechanicalModel::correct(volSymmTensorField& sigma)
 }
 
 
+void Foam::mechanicalModel::correctStressComponents
+(
+    volSymmTensorField& sigmaToProject,
+    volSymmTensorField& sigmaPreserved
+)
+{
+    PtrList<mechanicalLaw>& laws = *this;
+
+    if (laws.size() == 1)
+    {
+        laws[0].correctStressComponents(sigmaToProject, sigmaPreserved);
+    }
+    else
+    {
+        PtrList<volSymmTensorField> subMeshSigmaPreserved(laws.size());
+
+        forAll(laws, lawI)
+        {
+            const fvMesh& lawMesh =
+                solSubMeshes().subMeshes()[lawI].subMesh();
+
+            subMeshSigmaPreserved.set
+            (
+                lawI,
+                solSubMeshes().lookupBaseMeshVolField<symmTensor>
+                (
+                    sigmaPreserved.name(), lawMesh
+                )
+            );
+
+            laws[lawI].correctStressComponents
+            (
+                solSubMeshes().subMeshSigma()[lawI],
+                subMeshSigmaPreserved[lawI]
+            );
+        }
+
+        solSubMeshes().mapSubMeshVolFields<symmTensor>
+        (
+            solSubMeshes().subMeshSigma(), sigmaToProject
+        );
+        solSubMeshes().mapSubMeshVolFields<symmTensor>
+        (
+            subMeshSigmaPreserved, sigmaPreserved
+        );
+    }
+}
+
+
 void Foam::mechanicalModel::correct(surfaceSymmTensorField& sigma)
 {
     PtrList<mechanicalLaw>& laws = *this;
@@ -585,6 +634,60 @@ void Foam::mechanicalModel::correct(surfaceSymmTensorField& sigma)
         solSubMeshes().mapSubMeshSurfaceFields<symmTensor>
         (
             solSubMeshes().subMeshSigmaf(), sigma
+        );
+    }
+}
+
+
+void Foam::mechanicalModel::correctStressComponents
+(
+    surfaceSymmTensorField& sigmaToProject,
+    surfaceSymmTensorField& sigmaPreserved
+)
+{
+    PtrList<mechanicalLaw>& laws = *this;
+
+    if (laws.size() == 1)
+    {
+        laws[0].correctStressComponents(sigmaToProject, sigmaPreserved);
+    }
+    else
+    {
+        sigmaToProject =
+            dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+        sigmaPreserved =
+            dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+
+        PtrList<surfaceSymmTensorField> subMeshSigmaPreserved(laws.size());
+
+        forAll(laws, lawI)
+        {
+            const fvMesh& lawMesh =
+                solSubMeshes().subMeshes()[lawI].subMesh();
+
+            subMeshSigmaPreserved.set
+            (
+                lawI,
+                solSubMeshes().lookupBaseMeshSurfaceField<symmTensor>
+                (
+                    sigmaPreserved.name(), lawMesh
+                )
+            );
+
+            laws[lawI].correctStressComponents
+            (
+                solSubMeshes().subMeshSigmaf()[lawI],
+                subMeshSigmaPreserved[lawI]
+            );
+        }
+
+        solSubMeshes().mapSubMeshSurfaceFields<symmTensor>
+        (
+            solSubMeshes().subMeshSigmaf(), sigmaToProject
+        );
+        solSubMeshes().mapSubMeshSurfaceFields<symmTensor>
+        (
+            subMeshSigmaPreserved, sigmaPreserved
         );
     }
 }

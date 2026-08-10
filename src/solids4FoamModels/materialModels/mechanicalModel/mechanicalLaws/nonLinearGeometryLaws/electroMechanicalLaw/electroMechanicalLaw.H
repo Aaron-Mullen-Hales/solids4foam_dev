@@ -147,8 +147,22 @@ public:
         //- Calculate the stress
         virtual void correct(volSymmTensorField& sigma);
 
+        //- Calculate passive/projected and active/preserved cell stress
+        virtual void correctStressComponents
+        (
+            volSymmTensorField& sigmaToProject,
+            volSymmTensorField& sigmaPreserved
+        );
+
         //- Calculate the stress
         virtual void correct(surfaceSymmTensorField& sigma);
+
+        //- Calculate passive/projected and active/preserved face stress
+        virtual void correctStressComponents
+        (
+            surfaceSymmTensorField& sigmaToProject,
+            surfaceSymmTensorField& sigmaPreserved
+        );
 
         //- Forward accumulated-field updates to the passive law
         virtual void updateTotalFields();

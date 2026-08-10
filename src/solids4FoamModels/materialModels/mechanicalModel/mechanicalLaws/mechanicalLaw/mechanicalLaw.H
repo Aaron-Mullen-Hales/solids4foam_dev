@@ -593,6 +593,26 @@ public:
         //  accordingly
         virtual void setRestart()
         {}
+
+        // Keep new virtual functions after the established interface so that
+        // existing virtual-table slot ordering is not disturbed.
+
+        //- Calculate the volField stress components for a mixed pressure split
+        //  sigmaToProject is projected with dev() by the solid model, whereas
+        //  sigmaPreserved is retained in full
+        virtual void correctStressComponents
+        (
+            volSymmTensorField& sigmaToProject,
+            volSymmTensorField& sigmaPreserved
+        );
+
+        //- Calculate the surfaceField stress components for a mixed pressure
+        //  split
+        virtual void correctStressComponents
+        (
+            surfaceSymmTensorField& sigmaToProject,
+            surfaceSymmTensorField& sigmaPreserved
+        );
 };
 
 
