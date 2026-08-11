@@ -285,6 +285,22 @@ public:
         //- Calculate passive face Cauchy stress
         virtual void correct(surfaceSymmTensorField& sigma);
 
+        //- Split the passive cell stress into the part the calling solid
+        //  model may deviatorise and the part that must be preserved
+        virtual void correctStressComponents
+        (
+            volSymmTensorField& sigmaToProject,
+            volSymmTensorField& sigmaPreserved
+        );
+
+        //- Split the passive face stress into the part the calling solid
+        //  model may deviatorise and the part that must be preserved
+        virtual void correctStressComponents
+        (
+            surfaceSymmTensorField& sigmaToProject,
+            surfaceSymmTensorField& sigmaPreserved
+        );
+
         //- Set restart field write options
         virtual void setRestart();
 };

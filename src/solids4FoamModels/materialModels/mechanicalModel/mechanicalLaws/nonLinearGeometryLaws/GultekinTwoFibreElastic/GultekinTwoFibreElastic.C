@@ -1239,6 +1239,33 @@ void Foam::GultekinTwoFibreElastic::correct
 }
 
 
+void Foam::GultekinTwoFibreElastic::correctStressComponents
+(
+    volSymmTensorField& sigmaToProject,
+    volSymmTensorField& sigmaPreserved
+)
+{
+    correct(sigmaToProject);
+
+    sigmaPreserved =
+        (1.0/3.0)*tr(sigmaToProject)
+       *dimensionedSymmTensor("I", dimless, symmTensor::I);
+}
+
+
+void Foam::GultekinTwoFibreElastic::correctStressComponents
+(
+    surfaceSymmTensorField& sigmaToProject,
+    surfaceSymmTensorField& sigmaPreserved
+)
+{
+    correct(sigmaToProject);
+    sigmaPreserved =
+        (1.0/3.0)*tr(sigmaToProject)
+       *dimensionedSymmTensor("I", dimless, symmTensor::I);
+}
+
+
 void Foam::GultekinTwoFibreElastic::setRestart()
 {
     F().writeOpt() = IOobject::AUTO_WRITE;
