@@ -418,6 +418,67 @@ Foam::tmp<Foam::surfaceScalarField> Foam::mechanicalModel::impKf() const
 }
 
 
+Foam::tmp<Foam::volScalarField> Foam::mechanicalModel::viscousImpK() const
+{
+    const PtrList<mechanicalLaw>& laws = *this;
+
+    if (laws.size() == 1)
+    {
+        return laws[0].viscousImpK();
+    }
+
+    tmp<volScalarField> tresult
+    (
+        new volScalarField
+        (
+            IOobject
+            (
+                "viscousImpK",
+                mesh().time().timeName(),
+                mesh(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE
+            ),
+            mesh(),
+            dimensionedScalar("zero", dimForce/dimArea, 0),
+            calculatedFvPatchScalarField::typeName
+        )
+    );
+
+#ifdef OPENFOAM_NOT_EXTEND
+    volScalarField& result = tresult.ref();
+#else
+    volScalarField& result = tresult();
+#endif
+
+    PtrList<volScalarField> viscousImpKs(laws.size());
+
+    forAll(laws, lawI)
+    {
+        viscousImpKs.set
+        (
+            lawI,
+            new volScalarField(laws[lawI].viscousImpK())
+        );
+    }
+
+    solSubMeshes().mapSubMeshVolFields<scalar>(viscousImpKs, result);
+
+    viscousImpKs.clear();
+
+    return tresult;
+}
+
+
+Foam::tmp<Foam::surfaceScalarField>
+Foam::mechanicalModel::viscousImpKf() const
+{
+    const volScalarField viscousImpK(this->viscousImpK());
+    const word interpName = "interpolate(" + viscousImpK.name() + ')';
+    return fvc::interpolate(viscousImpK, interpName);
+}
+
+
 Foam::tmp<Foam::volScalarField> Foam::mechanicalModel::bulkModulus() const
 {
     const PtrList<mechanicalLaw>& laws = *this;
@@ -1189,6 +1250,17 @@ Foam::scalar Foam::mechanicalModel::residual()
     }
 
     return maxResidual;
+}
+
+
+void Foam::mechanicalModel::updateFf()
+{
+    PtrList<mechanicalLaw>& laws = *this;
+
+    forAll(laws, lawI)
+    {
+        laws[lawI].updateFf();
+    }
 }
 
 

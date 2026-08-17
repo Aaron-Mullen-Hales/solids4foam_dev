@@ -1649,6 +1649,30 @@ Foam::tmp<Foam::surfaceScalarField> Foam::mechanicalLaw::impKf() const
 }
 
 
+Foam::tmp<Foam::volScalarField> Foam::mechanicalLaw::viscousImpK() const
+{
+    // Rate-independent by default: there is no viscous stiffness to offer to
+    // a preconditioner. Laws with a rate-dependent part override this.
+    return tmp<volScalarField>
+    (
+        new volScalarField
+        (
+            IOobject
+            (
+                "viscousImpK",
+                mesh().time().timeName(),
+                mesh(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE
+            ),
+            mesh(),
+            dimensionedScalar("zero", dimForce/dimArea, 0.0),
+            calculatedFvPatchScalarField::typeName
+        )
+    );
+}
+
+
 void Foam::mechanicalLaw::materialTangentField(List<mat66>& matTan) const
 {
     // Set the list size
@@ -1672,6 +1696,33 @@ void Foam::mechanicalLaw::correctStressComponents
     correct(sigmaToProject);
     sigmaPreserved =
         dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+}
+
+
+void Foam::mechanicalLaw::updateFf()
+{
+    if (nonLinGeom() != nonLinearGeometry::TOTAL_LAGRANGIAN || incremental())
+    {
+        // Only the non-incremental total-Lagrangian form is handled here; the
+        // incremental and updated-Lagrangian forms accumulate Ff from relFf
+        // inside updateF(surfaceSymmTensorField&, ...) and must not be
+        // advanced by a side-channel update
+        return;
+    }
+
+    if (!mesh().foundObject<surfaceTensorField>("grad(D)f"))
+    {
+        FatalErrorInFunction
+            << "The surface displacement gradient \"grad(D)f\" is not "
+            << "registered, so the face deformation gradient cannot be "
+            << "updated. The solid model must register and maintain it "
+            << "before requesting updateFf()" << abort(FatalError);
+    }
+
+    const surfaceTensorField& gradDf =
+        mesh().lookupObject<surfaceTensorField>("grad(D)f");
+
+    Ff() = I + gradDf.T();
 }
 
 

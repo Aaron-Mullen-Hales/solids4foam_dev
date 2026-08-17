@@ -113,6 +113,27 @@ public:
         static const NamedEnum<solutionLocation, 3> solutionLocationNames_;
 #endif
 
+        //- Return codes for the formResidual()/formJacobian() overrides
+        //
+        //  These distinguish two things that must not be conflated:
+        //
+        //    SNES_EVAL_DOMAIN_ERROR is an *expected* outcome. A Newton or
+        //    line-search trial point can legitimately fall outside the
+        //    model's domain (for a solid model, a deformation gradient that
+        //    is not admissible). PETSc has a first-class mechanism for
+        //    this: the callback reports it with SNESSetFunctionDomainError()
+        //    and returns success, PETSc tags the residual vector with Inf,
+        //    and the backtracking line search halves lambda and retries.
+        //    It is therefore never fatal, regardless of stopOnPetscError.
+        //
+        //    Any other non-zero code is a genuine programming or API error
+        //    and is governed by stopOnPetscError.
+        enum evaluationStatus
+        {
+            SNES_EVAL_OK = 0,
+            SNES_EVAL_DOMAIN_ERROR = 1
+        };
+
 private:
 
     // Private data
@@ -127,11 +148,26 @@ private:
         //  We re-set the options file before each call to solve
         PetscOptions options_;
 
-        //- Flag to set whether the solver stops when PETSc SNES returns an
-        //  error
+        //- Flag to set whether the solver stops when PETSc SNES returns a
+        //  genuine error.
+        //
+        //  This does NOT govern trial-domain rejection. A Newton or
+        //  line-search trial point that falls outside the model's domain
+        //  (SNES_EVAL_DOMAIN_ERROR) is an expected, recoverable event and is
+        //  always reported to PETSc via SNESSetFunctionDomainError() so the
+        //  line search can backtrack, whatever this flag is set to. The two
+        //  concepts are deliberately separate: a user who wants genuine
+        //  PETSc/API errors to stay fatal should not thereby turn a routine
+        //  line-search backtrack into a FatalError
         Switch stopOnPetscError_;
 
-        //- Flag to track if SNES diverged
+        //- Flag to track if SNES diverged.
+        //  Set only for genuine evaluation errors; it is deliberately NOT
+        //  set for a recoverable domain rejection, because PETSc's own
+        //  SNESCheckFunctionNorm() already reports
+        //  SNES_DIVERGED_FUNCTION_DOMAIN when such a rejection cannot be
+        //  recovered from, and latching it here would end a solve that the
+        //  line search had already recovered from
         bool diverged_;
 
         //- Pointer to the PETSc SNES object
@@ -187,6 +223,15 @@ private:
         //- Initialise the snes object
         virtual label initialiseSnes();
 
+        //- Does this model's formJacobian() ever report
+        //  SNES_EVAL_DOMAIN_ERROR? Only then is PETSc's Jacobian-domain check
+        //  enabled, since it costs one extra collective reduction per Jacobian
+        //  evaluation and most models never set the flag. Default: no
+        virtual bool reportsJacobianDomainError() const
+        {
+            return false;
+        }
+
         //- Disallow default bitwise copy construct
         foamPetscSnesHelper(const foamPetscSnesHelper&);
 
@@ -214,7 +259,8 @@ public:
         //                          This is used to determine the local-to-global
         //                          mapping
         //    stopOnPetscError    - Optional: Give a FatalError when PETSc
-        //                          returns an error
+        //                          returns a genuine error. Does not affect
+        //                          recoverable trial-domain rejection
         //    initialise          - Optional: Initialise PETSc
         foamPetscSnesHelper
         (

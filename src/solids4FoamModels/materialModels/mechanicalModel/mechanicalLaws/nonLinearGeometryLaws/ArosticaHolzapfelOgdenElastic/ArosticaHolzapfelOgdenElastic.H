@@ -215,6 +215,20 @@ public:
         //- Calculate the complete passive face Cauchy stress
         virtual void correct(surfaceSymmTensorField& sigma);
 
+        //- Preserve the complete passive cell Cauchy stress in a mixed split
+        virtual void correctStressComponents
+        (
+            volSymmTensorField& sigmaToProject,
+            volSymmTensorField& sigmaPreserved
+        );
+
+        //- Preserve the complete passive face Cauchy stress in a mixed split
+        virtual void correctStressComponents
+        (
+            surfaceSymmTensorField& sigmaToProject,
+            surfaceSymmTensorField& sigmaPreserved
+        );
+
         //- Populate the numerical constitutive tangent
         virtual void materialTangentField(List<mat66>& matTan) const;
 

@@ -151,6 +151,14 @@ public:
             //  This is the diffusivity for the Laplacian term
             tmp<surfaceScalarField> impKf() const;
 
+            //- Return the viscous (rate-dependent) implicit stiffness of the
+            //  laws. Preconditioner use only: this never enters the
+            //  residual. Zero for rate-independent laws.
+            tmp<volScalarField> viscousImpK() const;
+
+            //- As viscousImpK(), interpolated to faces
+            tmp<surfaceScalarField> viscousImpKf() const;
+
             //- Return bulk modulus
             tmp<volScalarField> bulkModulus() const;
 
@@ -268,6 +276,10 @@ public:
             (
                 pointVectorField& pointD
             ) const;
+
+            //- Bring each law's face deformation gradient up to date with
+            //  the current displacement field. See mechanicalLaw::updateFf()
+            void updateFf();
 
             //- Update total accumulated fields
             void updateTotalFields();

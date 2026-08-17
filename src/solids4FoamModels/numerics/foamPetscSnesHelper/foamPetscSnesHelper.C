@@ -43,45 +43,65 @@ PetscErrorCode formResidualFoamPetscSnesHelper
     void *ctx     // user context
 )
 {
-    const PetscScalar *xx;
-    PetscScalar       *ff;
     appCtxfoamPetscSnesHelper *user = (appCtxfoamPetscSnesHelper *)ctx;
 
     PetscFunctionBeginUser;
 
-    // Access x and f data
-    CHKERRQ(VecGetArrayRead(x, &xx));
-    CHKERRQ(VecGetArray(f, &ff));
+    // No VecGetArray*() is taken here. formResidual() receives the PETSc Vec
+    // handles and the ExtractFieldComponents/InsertFieldComponents helpers
+    // perform their own balanced get/restore internally, so a raw pointer at
+    // this level was never read. Not acquiring one is the simplest correct
+    // ownership structure: there is no array to leak if a later PETSc call
+    // fails, and CHKERRQ/PetscCall may return from any line below.
+    const Foam::label status = user->solMod_.formResidual(f, x);
 
-    // Compute the residual
-    if (user->solMod_.formResidual(f, x) != 0)
+    if (status == Foam::foamPetscSnesHelper::SNES_EVAL_DOMAIN_ERROR)
     {
+        // The trial point is outside the model's domain. This is an
+        // expected event during a line search, not an error, so it is never
+        // fatal: stopOnPetscError governs genuine PETSc/API errors, not
+        // admissible-domain rejection.
+        //
+        // SNESSetFunctionDomainError() is the documented mechanism.
+        // SNESComputeFunction() clears snes->domainerror before invoking
+        // this callback and, on return, calls VecFlag(f, domainerror),
+        // which overwrites f with Inf. The residual therefore must NOT be
+        // filled here, and the callback must return success: a non-zero
+        // return is propagated by PetscCallBack as a hard error.
+        //
+        // SNESLineSearchApply_BT() then sees a non-finite norm, reports
+        // "objective function at lambdas = ... is Inf or Nan, cutting
+        // lambda", halves lambda and retries. If the step cannot be reduced
+        // far enough, SNESCheckFunctionNorm() itself reports
+        // SNES_DIVERGED_FUNCTION_DOMAIN. Nothing here needs to latch a
+        // divergence flag, and latching one would terminate a solve that
+        // the line search had already recovered from.
+        PetscCall(SNESSetFunctionDomainError(snes));
+
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+    else if (status != Foam::foamPetscSnesHelper::SNES_EVAL_OK)
+    {
+        // A genuine error, governed by stopOnPetscError
         if (user->solMod_.stopOnPetscError())
         {
             Foam::FatalError
-                << "formResidual(ff, xx) returned an error code!"
+                << "formResidual(f, x) returned error code " << status
                 << Foam::abort(Foam::FatalError);
         }
         else
         {
             Foam::Warning
-                << "formResidual(ff, xx) returned an error code!"
+                << "formResidual(f, x) returned error code " << status
                 << Foam::endl;
         }
 
-        // Let SNES know about the error
         user->solMod_.diverged() = true;
-        PetscCall(SNESSetFunctionDomainError(snes));
 
-        // Exit without an error code so SNES can exit "softly"
-        PetscFunctionReturn(0);
+        PetscFunctionReturn(PETSC_SUCCESS);
     }
 
-    // Restore the solution and residual vectors
-    CHKERRQ(VecRestoreArrayRead(x, &xx));
-    CHKERRQ(VecRestoreArray(f, &ff));
-
-    PetscFunctionReturn(0);
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 
@@ -98,29 +118,21 @@ PetscErrorCode formJacobianFoamPetscSnesHelper
     // The "-snes_lag_jacobian -2" PETSc option can be used to avoid
     // re-building the matrix
 
-    // Get pointer to solution data
-    const PetscScalar *xx;
-    CHKERRQ(VecGetArrayRead(x, &xx));
-
     // Access the OpenFOAM data
     appCtxfoamPetscSnesHelper *user = (appCtxfoamPetscSnesHelper *)ctx;
 
-    // Zero the matrix but do not reallocate the space
-    // For a nested matrix, this will zero all sub-matrices
+    PetscFunctionBeginUser;
+
+    // As in the residual callback, no VecGetArray*() is taken here: the raw
+    // pointer was unused, and formJacobian() works from the Vec handle
     CHKERRQ(MatZeroEntries(B));
 
     // Populate the Jacobian => implemented by the solid model
-    if (user->solMod_.formJacobian(B, x) != 0)
-    {
-        Foam::FatalError
-            << "formJacobian(B, xx) returned an error code!"
-            << Foam::abort(Foam::FatalError);
-    }
+    const Foam::label status = user->solMod_.formJacobian(B, x);
 
-    // Restore solution vector
-    CHKERRQ(VecRestoreArrayRead(x, &xx));
-
-    // Complete matrix assembly
+    // Complete matrix assembly on every path. Even when the trial state was
+    // rejected the matrix must be left assembled and therefore valid: it has
+    // only been zeroed, so it contains no stale or partially updated entries
     CHKERRQ(MatAssemblyBegin(B, MAT_FINAL_ASSEMBLY));
     CHKERRQ(MatAssemblyEnd(B, MAT_FINAL_ASSEMBLY));
 
@@ -130,7 +142,43 @@ PetscErrorCode formJacobianFoamPetscSnesHelper
         CHKERRQ(MatAssemblyEnd(jac, MAT_FINAL_ASSEMBLY));
     }
 
-    return 0;
+    if (status == Foam::foamPetscSnesHelper::SNES_EVAL_DOMAIN_ERROR)
+    {
+        // The Jacobian was requested at a point outside the model's domain,
+        // so nothing was assembled. Report it through PETSc rather than
+        // handing over a matrix built from stale fields.
+        //
+        // SNESCheckJacobianDomainerror() runs immediately after
+        // SNESComputeJacobian() and before KSPSetOperators()/KSPSolve(), so
+        // the zeroed matrix is never given to the KSP; SNESSolve() returns
+        // with SNES_DIVERGED_JACOBIAN_DOMAIN. Note that the check is only
+        // performed when snes->checkjacdomainerror is set, which defaults to
+        // false in optimised PETSc builds; initialiseSnes() enables it
+        // explicitly so that this signal is not silently ignored.
+        PetscCall(SNESSetJacobianDomainError(snes));
+
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+    else if (status != Foam::foamPetscSnesHelper::SNES_EVAL_OK)
+    {
+        // A genuine error, governed by stopOnPetscError
+        if (user->solMod_.stopOnPetscError())
+        {
+            Foam::FatalError
+                << "formJacobian(B, x) returned error code " << status
+                << Foam::abort(Foam::FatalError);
+        }
+        else
+        {
+            Foam::Warning
+                << "formJacobian(B, x) returned error code " << status
+                << Foam::endl;
+        }
+
+        user->solMod_.diverged() = true;
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 
@@ -488,6 +536,21 @@ label foamPetscSnesHelper::initialiseSnes()
             snes_.s, convergenceCheckFoamPetscSnesHelper, &user, NULL
         )
     );
+
+    // Honour SNESSetJacobianDomainError() reported by
+    // formJacobianFoamPetscSnesHelper(). PETSc only acts on that flag when
+    // snes->checkjacdomainerror is set, and it defaults to true only in debug
+    // builds, so without this a Jacobian-domain rejection would be silently
+    // ignored in an optimised build and a zeroed preconditioner matrix would
+    // be handed to the KSP.
+    //
+    // PETSc performs one extra collective reduction per Jacobian evaluation
+    // when this is enabled, so it is requested only by models that can
+    // actually report the condition rather than for every user of this helper
+    if (reportsJacobianDomainError())
+    {
+        AssertPETSc(SNESSetCheckJacobianDomainError(snes_.s, PETSC_TRUE));
+    }
 
     // Register the solids4foam physics-based solver preconditioner, which can
     // be optionally called with "-pc_type physics"

@@ -107,6 +107,22 @@ IOobject requiredReferenceFieldIOobject
 }
 
 
+// Exponent ceiling for the Holzapfel-Ogden exponential energy terms. The raw
+// invariants (I1bar, I4f, I4s, I8fs) are checked for finiteness before this
+// point, but a finite invariant can still produce an exponent large enough
+// for std::exp to silently overflow to Inf (e.g. bf*(I4f-1)^2 with bf ~ 16
+// overflows once I4f exceeds ~7.6). Clamping the exponent keeps the energy
+// and its derivatives finite -- and correspondingly, extremely stiff -- deep
+// into any physically unreasonable local stretch, rather than propagating
+// Inf/NaN into the residual and corrupting the PETSc SNES solve.
+const scalar arosticaMaxExponent = 50.0;
+
+scalar safeExp(const scalar exponent)
+{
+    return std::exp(min(exponent, arosticaMaxExponent));
+}
+
+
 bool finiteVector(const vector& value)
 {
     return
@@ -464,9 +480,12 @@ Foam::ArosticaHolzapfelOgdenElastic::evaluateConstitutive
             << abort(FatalError);
     }
 
+    const scalar isotropicExponent =
+        safeExp(b_.value()*(result.I1bar - 3.0));
+
     const scalar W1 =
         a_.value()/(2.0*b_.value())
-       *(std::exp(b_.value()*(result.I1bar - 3.0)) - 1.0);
+       *(isotropicExponent - 1.0);
 
     const CompressionSwitchResult fibreSwitch =
         compressionSwitchValue(result.I4f);
@@ -474,11 +493,11 @@ Foam::ArosticaHolzapfelOgdenElastic::evaluateConstitutive
         compressionSwitchValue(result.I4s);
 
     const scalar fibreExponent =
-        std::exp(bf_.value()*sqr(result.I4f - 1.0));
+        safeExp(bf_.value()*sqr(result.I4f - 1.0));
     const scalar sheetExponent =
-        std::exp(bs_.value()*sqr(result.I4s - 1.0));
+        safeExp(bs_.value()*sqr(result.I4s - 1.0));
     const scalar fibreSheetExponent =
-        std::exp(bfs_.value()*sqr(result.I8fs));
+        safeExp(bfs_.value()*sqr(result.I8fs));
 
     result.energy =
         W1
@@ -501,7 +520,7 @@ Foam::ArosticaHolzapfelOgdenElastic::evaluateConstitutive
 
     symmTensor S
     (
-        a_.value()*std::exp(b_.value()*(result.I1bar - 3.0))*dI1bar
+        a_.value()*isotropicExponent*dI1bar
     );
 
     const scalar qf = result.I4f - 1.0;
@@ -1042,6 +1061,60 @@ void Foam::ArosticaHolzapfelOgdenElastic::correct
                 ).sigma;
         }
     }
+}
+
+
+// Mixed displacement-pressure split for the Aróstica law.
+//
+// The mixed solid model forms sigma = dev(sigmaToProject) + sigmaPreserved
+// - p*I, so sigmaToProject holds the contributions for which a spatial dev()
+// is intended and sigmaPreserved holds those whose complete Cauchy stress,
+// including any spherical part, must survive.
+//
+// Only one term of this law is a candidate for projection: the modified-I1
+// contribution. It is already exactly trace-free, because
+//
+//     F (I - (trC/3) C^-1) F^T = B - (trC/3) I,   whose trace is
+//     tr(B) - tr(C) = 0,
+//
+// so dev() would leave it unchanged and preserving it is identical to
+// projecting it. Every other term must be preserved: this law uses the raw
+// anisotropic invariants I4f, I4s and I8fs rather than their isochoric
+// counterparts, so the fibre, sheet and fibre-sheet Cauchy stresses are not
+// trace-free, and neither is the pushed-forward viscous stress added by the
+// derived viscoelastic law. Projecting those would delete physical spherical
+// stress that no energy split justifies; the volumetric response is carried
+// separately by -p*I.
+//
+// Hence sigmaToProject is left empty and correct() supplies the complete
+// non-volumetric stress. correct() is virtual, so on an
+// ArosticaHolzapfelOgdenViscoelastic object this call dispatches to that
+// class and therefore includes sigmaViscous exactly once.
+//
+// Note this is the opposite convention to GultekinTwoFibreElastic, which
+// splits explicitly. Both are correct; the difference is only legitimate
+// here because of the trace-free identity above.
+void Foam::ArosticaHolzapfelOgdenElastic::correctStressComponents
+(
+    volSymmTensorField& sigmaToProject,
+    volSymmTensorField& sigmaPreserved
+)
+{
+    sigmaToProject =
+        dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+    correct(sigmaPreserved);
+}
+
+
+void Foam::ArosticaHolzapfelOgdenElastic::correctStressComponents
+(
+    surfaceSymmTensorField& sigmaToProject,
+    surfaceSymmTensorField& sigmaPreserved
+)
+{
+    sigmaToProject =
+        dimensionedSymmTensor("zero", dimPressure, symmTensor::zero);
+    correct(sigmaPreserved);
 }
 
 

@@ -16,25 +16,47 @@ License
     along with solids4foam.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    electroMechanicalLaw
+    ArosticaActivation
 
 Description
-    Generalised electro-coupled mechanical law, where the stress is composed of
-    two components: an active component, stemming from electro-mechanical
-    coupling; and a passive component coming from a hyperelastic law.
+    Electro-coupled mechanical law implementing the time-dependent active
+    stress model of Bestel, Clement and Sorine, as used for the Aróstica
+    et al. cardiac elastodynamics benchmark ("A software benchmark for
+    cardiac elastodynamics", Comput. Methods Appl. Mech. Engrg. 435 (2025)
+    117485).
 
-    The passive hyperelastic law is run-time selectable.
+    The stress is composed of a run-time selectable passive hyperelastic
+    law plus an active fibre-direction component sigma_active = tau(t) f0 x
+    f0, where tau(t) solves the scalar evolution equation (Eq. 5 in the
+    reference paper)
+
+        dtau/dt = -|a(t)| tau(t) + sigma0 |a(t)|_+
+
+    with activation function (Eq. 6)
+
+        a(t)   = alphaMax f(t) + alphaMin (1 - f(t))
+        f(t)   = Splus(t - tSys) Sminus(t - tDias)
+        S+-(x) = 0.5 (1 +- tanh(x/gamma))
+
+    tau(t) is spatially uniform (it depends only on time, not on the
+    deformation), so it is integrated once per accepted time step using a
+    fixed-substep RK4 scheme fine enough to resolve the gamma time scale,
+    independent of the outer solver time step. The result is cached against
+    the mesh time index and written out as a volScalarField "Ta" for
+    visualisation.
+
+    This law only reproduces the active-stress part of the benchmark
+    (Case A / Step 1 activation). It does not implement the companion
+    time-dependent "follower" endocardial pressure model (Eqs. 7-8), which
+    remains a separate concern.
 
 SourceFiles
-    electroMechanicalLaw.C
-
-Author
-    Philip Cardiff, UCD.
+    ArosticaActivation.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef electroMechanicalLaw_H
-#define electroMechanicalLaw_H
+#ifndef ArosticaActivation_H
+#define ArosticaActivation_H
 
 #include "mechanicalLaw.H"
 
@@ -44,10 +66,10 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                         Class electroMechanicalLaw Declaration
+                    Class ArosticaActivation Declaration
 \*---------------------------------------------------------------------------*/
 
-class electroMechanicalLaw
+class ArosticaActivation
 :
     public mechanicalLaw
 {
@@ -68,45 +90,71 @@ class electroMechanicalLaw
         //- Surface fibre direction outer product
         surfaceSymmTensorField f0f0f_;
 
-        //- Constant active tension (used when no field-based Ta is available)
-        const dimensionedScalar Ta_;
+        //- Contractility, sigma0 in Eq. (5)
+        const dimensionedScalar sigma0_;
 
-        //- Ramp time over which Ta is increased from zero to its maximum value
-        const scalar rampTime_;
+        //- Activation function transition sharpness, gamma in Eq. (6)
+        const dimensionedScalar gamma_;
 
-        //- Flag: true if a field-based "Ta" volScalarField is found in the
-        //  objectRegistry (set by the coupling model). Checked lazily at the
-        //  first call to correct() since the coupling model may register the
-        //  field after the mechanicalLaw is constructed.
-        mutable bool useFieldTa_;
+        //- Minimum activation rate, alphaMin in Eq. (6)
+        const dimensionedScalar alphaMin_;
 
-        //- Flag: true once useFieldTa_ has been determined
-        mutable bool fieldTaChecked_;
+        //- Maximum activation rate, alphaMax in Eq. (6)
+        const dimensionedScalar alphaMax_;
+
+        //- Systole onset time, tSys in Eq. (6)
+        const dimensionedScalar tSys_;
+
+        //- Diastole onset time, tDias in Eq. (6)
+        const dimensionedScalar tDias_;
+
+        //- Active tension field, written for post-processing
+        mutable volScalarField Ta_;
+
+        //- Mesh time index at which tau_ was last integrated
+        mutable label cachedTimeIndex_;
+
+        //- Active tension tau(t) at the cached time index
+        mutable scalar tau_;
 
     // Private Member Functions
 
-        //- Check whether a field-based active tension should be used
-        void checkFieldTa() const;
+        //- Validate the activation model parameters
+        void validateActivationParameters() const;
 
-        //- Return the current ramped constant active tension
-        dimensionedScalar activeTension() const;
+        //- S+-(deltaT) = 0.5*(1 +- tanh(deltaT/gamma_))
+        scalar sPlus(const scalar deltaT) const;
+        scalar sMinus(const scalar deltaT) const;
+
+        //- Activation function a(t), Eq. (6)
+        scalar activationFunction(const scalar t) const;
+
+        //- Time derivative of tau, Eq. (5)
+        scalar tauDerivative(const scalar t, const scalar tau) const;
+
+        //- Integrate tau(t) from 0 to tEnd using fixed-substep RK4
+        scalar integrateTau(const scalar tEnd) const;
+
+        //- Return tau(t) at the current time, integrating and caching it
+        //  once per accepted time step
+        scalar currentTau() const;
 
         //- Disallow default bitwise copy construct
-        electroMechanicalLaw(const electroMechanicalLaw&);
+        ArosticaActivation(const ArosticaActivation&);
 
         //- Disallow default bitwise assignment
-        void operator=(const electroMechanicalLaw&);
+        void operator=(const ArosticaActivation&);
 
 public:
 
     //- Runtime type information
-    TypeName("electroMechanicalLaw");
+    TypeName("ArosticaActivation");
 
 
     // Constructors
 
         //- Construct from dictionary
-        electroMechanicalLaw
+        ArosticaActivation
         (
             const word& name,
             const fvMesh& mesh,
@@ -117,7 +165,7 @@ public:
 
     // Destructor
 
-        virtual ~electroMechanicalLaw();
+        virtual ~ArosticaActivation();
 
 
     // Member Functions
@@ -125,11 +173,6 @@ public:
         //- Return the implicit stiffness
         //  This is the diffusivity for the Laplacian term
         virtual tmp<volScalarField> impK() const;
-
-        //- Forward the passive law's viscous implicit stiffness
-        //  (preconditioner only; the active stress is rate-independent
-        //  and contributes none)
-        virtual tmp<volScalarField> viscousImpK() const;
 
         //- Material tangent for Newton Raphson loop
         virtual void materialTangentField(List<mat66>& matTan) const;

@@ -524,6 +524,17 @@ public:
         //  This is the diffusivity for the Laplacian term
         virtual tmp<surfaceScalarField> impKf() const;
 
+        //- Return the implicit stiffness of any RATE-DEPENDENT (viscous) part
+        //  of the law: the Laplacian diffusivity representing the derivative
+        //  of the viscous stress with respect to D at the current time-step
+        //  size.
+        //
+        //  This exists solely so that a solid model can build a
+        //  preconditioner which sees the viscous stiffness; it must never
+        //  enter the residual. Rate-independent laws return zero, which is
+        //  the default implemented here.
+        virtual tmp<volScalarField> viscousImpK() const;
+
         //- Material tangent for Newton Raphson loop
         virtual mat66 materialTangent() const
         {
@@ -561,6 +572,22 @@ public:
 
         //- Calculate the surfaceField stress
         virtual void correct(surfaceSymmTensorField& sigma);
+
+        //- Bring the face deformation gradient Ff() up to date with the
+        //  current displacement field, WITHOUT evaluating a face stress.
+        //
+        //  Ff() is otherwise only ever written by
+        //  updateF(surfaceSymmTensorField&, ...), which is reached only from
+        //  correct(surfaceSymmTensorField&). A cell-centred solid model that
+        //  never calls the face stress path therefore leaves Ff() at its
+        //  initial identity, silently invalidating every face-based
+        //  consumer (face viscous fields, nominal/material tangents and the
+        //  active face stress, which reads the passive law's Ff()).
+        //
+        //  Uses the same expression and the same registered surface gradient
+        //  "grad(D)f" as updateF(surfaceSymmTensorField&, ...). Laws that do
+        //  not maintain a face deformation gradient may leave this as a no-op
+        virtual void updateFf();
 
         //- Calculate the pointField stress given the displacement gradient
         virtual void correct

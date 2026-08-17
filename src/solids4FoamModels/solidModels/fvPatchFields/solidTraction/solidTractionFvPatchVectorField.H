@@ -228,6 +228,31 @@ public:
 
 
         //- Update the coefficients associated with the patch field
+        //- Linearised support stiffness for the displacement preconditioner.
+        //
+        //  A traction condition whose traction depends on the owner-cell
+        //  displacement (a spring/dashpot support) contributes a stiffness to
+        //  the displacement-displacement preconditioner block. Returning true
+        //  fills kEff with the effective stiffness per unit reference area,
+        //
+        //      kEff = alpha + beta*ddtCoefficient
+        //
+        //  where ddtCoefficient is the CURRENT-time coefficient of the same
+        //  ddt scheme the residual uses, and sets normalOnly when the support
+        //  acts only along the patch normal, so the contribution is
+        //  kEff*(N outer N) rather than kEff*I.
+        //
+        //  The default is no contribution, which is correct for a traction
+        //  condition whose traction does not depend on D.
+        virtual bool supportTangent
+        (
+            scalarField& kEff,
+            bool& normalOnly
+        ) const
+        {
+            return false;
+        }
+
         virtual void updateCoeffs();
 
         //- Evaluate the patch field

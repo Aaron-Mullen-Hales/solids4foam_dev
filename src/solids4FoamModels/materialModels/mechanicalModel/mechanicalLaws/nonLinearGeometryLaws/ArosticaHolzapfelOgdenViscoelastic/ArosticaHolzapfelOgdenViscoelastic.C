@@ -657,12 +657,20 @@ bool Foam::ArosticaHolzapfelOgdenViscoelastic::viscousNominalTangentField
     const surfaceTensorField& deformationGradient = Ff();
     tangent.setSize(9*mesh().nFaces(), tensor::zero);
 
-    forAll(deformationGradient, faceI)
+    // faceI below is a GLOBAL face index: internal faces occupy [0, nInternalFaces)
+    // and each boundary patch occupies [patch.start(), patch.start() + patch.size()),
+    // which is how the tangent list is indexed and how passiveNominalTangentField()
+    // and materialTangentField() already address it
+    auto fillFace =
+    [this, &tangent, current, old, oldOld]
+    (
+        const label faceI,
+        const tensor& F,
+        const symmTensor& EOld,
+        const symmTensor& EOldOld
+    )
     {
-        const tensor& F = deformationGradient[faceI];
         const symmTensor E = strain(F);
-        const symmTensor& EOld = EfOld_[faceI];
-        const symmTensor& EOldOld = EfOldOld_[faceI];
 
         const symmTensor Sviscous
         (
@@ -697,9 +705,89 @@ bool Foam::ArosticaHolzapfelOgdenViscoelastic::viscousNominalTangentField
             tangent[9*faceI + componentI] =
                 (dF & Sviscous) + (F & dSviscous);
         }
+    };
+
+    for (label faceI = 0; faceI < mesh().nInternalFaces(); ++faceI)
+    {
+        fillFace
+        (
+            faceI,
+            deformationGradient[faceI],
+            EfOld_[faceI],
+            EfOldOld_[faceI]
+        );
+    }
+
+    // Boundary faces were previously left at the zero the list was sized with,
+    // because forAll() on a surface field iterates only the internal field. The
+    // traction patches therefore carried no viscous nominal stiffness at all,
+    // even though eta*current is the largest stiffness in the problem
+    // (3.0e6 Pa at the Case B time step). This mirrors the boundary loop that
+    // materialTangentField() in this class already uses
+    forAll(deformationGradient.boundaryField(), patchI)
+    {
+        const tensorField& FPatch =
+            deformationGradient.boundaryField()[patchI];
+        const symmTensorField& oldPatch = EfOld_.boundaryField()[patchI];
+        const symmTensorField& oldOldPatch =
+            EfOldOld_.boundaryField()[patchI];
+        const label start = mesh().boundaryMesh()[patchI].start();
+
+        forAll(FPatch, faceI)
+        {
+            fillFace
+            (
+                start + faceI,
+                FPatch[faceI],
+                oldPatch[faceI],
+                oldOldPatch[faceI]
+            );
+        }
     }
 
     return true;
+}
+
+
+Foam::tmp<Foam::volScalarField>
+Foam::ArosticaHolzapfelOgdenViscoelastic::viscousImpK() const
+{
+    // Viscous stiffness available to a preconditioner at the current
+    // time-step size. See the header for the derivation; in short,
+    //
+    //     S_v      = eta*Edot,   Edot = current*E(F) + frozen history
+    //     dE       = symm(F^T dF)
+    //  => dS_v/dD  carries the factor eta*current
+    //
+    // and about F = I the viscous divergence is that of an isotropic rate
+    // material with mu_v = eta/2, lambda_v = 0, whose impK-convention
+    // diffusivity (2*mu + lambda) is exactly eta*current.
+    //
+    // The same `current` coefficient that the residual uses is taken from
+    // temporalCoefficients(), so the preconditioner tracks deltaT and the
+    // Euler/backward first-step fallback automatically.
+    scalar current = 0.0;
+    scalar old = 0.0;
+    scalar oldOld = 0.0;
+    temporalCoefficients(current, old, oldOld);
+
+    return tmp<volScalarField>
+    (
+        new volScalarField
+        (
+            IOobject
+            (
+                "viscousImpK",
+                mesh().time().timeName(),
+                mesh(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE
+            ),
+            mesh(),
+            dimensionedScalar("viscousImpK", dimForce/dimArea, eta_.value()*current),
+            calculatedFvPatchScalarField::typeName
+        )
+    );
 }
 
 

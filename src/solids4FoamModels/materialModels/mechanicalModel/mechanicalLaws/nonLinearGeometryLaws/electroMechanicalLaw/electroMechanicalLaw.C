@@ -144,6 +144,15 @@ Foam::tmp<Foam::volScalarField> Foam::electroMechanicalLaw::impK() const
 }
 
 
+Foam::tmp<Foam::volScalarField>
+Foam::electroMechanicalLaw::viscousImpK() const
+{
+    // The active stress added by this wrapper is rate-independent, so the
+    // whole viscous stiffness comes from the passive law
+    return passiveMechLawPtr_->viscousImpK();
+}
+
+
 void Foam::electroMechanicalLaw::materialTangentField(List<mat66>& matTan) const
 {
     passiveMechLawPtr_->materialTangentField(matTan);
@@ -373,6 +382,12 @@ void Foam::electroMechanicalLaw::correctStressComponents
             activeCauchyStressf();
         sigmaPreserved += tSigmaActive();
     }
+}
+
+
+void Foam::electroMechanicalLaw::updateFf()
+{
+    passiveMechLawPtr_->updateFf();
 }
 
 

@@ -193,6 +193,24 @@ public:
             List<tensor>& tangent
         ) const;
 
+        //- Laplacian diffusivity representing the viscous stiffness at the
+        //  current time-step size, for preconditioner assembly only.
+        //
+        //  S_v = eta*Edot with Edot = current*E(F) + frozen history and
+        //  dE = symm(F^T dF), so d(S_v)/dD carries the factor eta*current.
+        //  Linearised about F = I the viscous divergence is
+        //
+        //      eta*current*( 0.5*laplacian(dD) + 0.5*grad(div(dD)) )
+        //
+        //  i.e. an isotropic rate-material with mu_v = eta/2 and lambda_v = 0.
+        //  Following the convention already used for impK in this library
+        //  (impK = 2*mu + lambda), the corresponding Laplacian diffusivity is
+        //
+        //      viscousImpK = 2*mu_v + lambda_v = eta*current .
+        //
+        //  Residual-neutral: nothing in correct() consults this.
+        virtual tmp<volScalarField> viscousImpK() const;
+
         //- Advance accepted strain histories once per accepted timestep
         virtual void updateTotalFields();
 

@@ -155,7 +155,23 @@ public:
             {}
 
             //- Evolve the mathematical model
+            //  Note: the returned bool is NOT a reliable success indicator.
+            //  Its meaning is model-specific -- for example
+            //  unsNonLinGeomTotalLagSolid returns false to signal that
+            //  enforced linearity was engaged, which is not a failure -- and
+            //  every current caller discards it. Use solutionFailed() to ask
+            //  whether the attempted solve may be accepted.
             virtual bool evolve() = 0;
+
+            //- Did the most recent evolve() fail, such that the attempted
+            //  time step must NOT be accepted (no history update, no output,
+            //  no advance to the next load)?
+            //  Default: models that never report failure return false, so the
+            //  time loop behaviour is unchanged for them.
+            virtual bool solutionFailed() const
+            {
+                return false;
+            }
 
             //- This function lets the physics models know the end of the
             //  time-step has been reached

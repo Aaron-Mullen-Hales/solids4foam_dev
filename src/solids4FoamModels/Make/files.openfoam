@@ -73,6 +73,7 @@ $(nonLinGeomLaws)/GuccioneElastic/GuccioneElastic.C
 $(nonLinGeomLaws)/GultekinTwoFibreElastic/GultekinTwoFibreElastic.C
 $(nonLinGeomLaws)/ArosticaHolzapfelOgdenElastic/ArosticaHolzapfelOgdenElastic.C
 $(nonLinGeomLaws)/ArosticaHolzapfelOgdenViscoelastic/ArosticaHolzapfelOgdenViscoelastic.C
+$(nonLinGeomLaws)/ArosticaActivation/ArosticaActivation.C
 $(nonLinGeomLaws)/HolzapfelGasserOgdenElastic/HolzapfelGasserOgdenElastic.C
 $(nonLinGeomLaws)/isotropicFungElastic/isotropicFungElastic.C
 $(nonLinGeomLaws)/OgdenElastic/OgdenElastic.C
